@@ -2,34 +2,45 @@
 # === Usage ===
 # Arguments are name of the benchmark to compile into LLVM IR
 
-# TODO check that environment variables are defined
+# Check that required environment variables are defined
+if [[ -z "$DYNAMATIC_PATH" ]]; then
+    echo "Environment variable \"DYNAMATIC_PATH\" is not defined. Abort."
+    exit
+fi
+if [[ -z "$POLYGEIST_PATH" ]]; then
+    echo "Environment variable \"POLYGEIST_PATH\" is not defined. Abort."
+    exit
+fi
 
-# Some paths
+# Parse arguments
+COMPILE_ALL=0
+FORCE=0
+for arg in "$@"; 
+do
+    case "$arg" in 
+        "--all")
+            COMPILE_ALL=1
+            ;;
+        "--force")
+            FORCE=1
+            ;;
+        *)
+            ;;
+    esac
+done
+
+# Define some paths
 SCRIPT_DIR=$PWD
 BENCHMARKS_DIR="$SCRIPT_DIR/benchmarks"
 DYNAMATIC_ROOT="$DYNAMATIC_PATH/dhls/etc/dynamatic"
-DYNAMATIC_BENCHMARKS="$DYNAMATIC_ROOT/Regression_test/examples"
-
-AFFINE_PASSES="--affine-data-copy-generate --affine-expand-index-ops \
---affine-loop-coalescing --affine-loop-fusion \
---affine-loop-invariant-code-motion --affine-loop-normalize --affine-loop-tile \
---affine-loop-unroll --affine-loop-unroll-jam --affine-parallelize  \
---affine-pipeline-data-transfer --affine-scalrep --affine-simplify-structures \
---affine-super-vectorize"
-STD_PASSES="-canonicalize -cse -sccp -symbol-dce -control-flow-sink \
--loop-invariant-code-motion -canonicalize"
-
-# Source environment variables for Dynamatic
-cd "$DYNAMATIC_PATH"
-source "$DYNAMATIC_PATH/.env"
-
+DYNAMATIC_REGRESION_DIR="$DYNAMATIC_ROOT/Regression_test/examples"
 
 get_bench_local_path () {
-    echo "$SCRIPT_DIR/benchmarks/$1"
+    echo "$BENCHMARKS_DIR/$1"
 }
 
 get_bench_regression_path () {
-    echo "$DYNAMATIC_BENCHMARKS/$1/src"
+    echo "$DYNAMATIC_REGRESION_DIR/$1/src"
 }
 
 copy_src () {
@@ -39,7 +50,7 @@ copy_src () {
 
     # Check whether file already exists in local folder
     local benchmark_dst="$(get_bench_local_path $name)"
-    if [ -d "$benchmark_dst" ]; then
+    if [[ $FORCE -eq 0 && -d "$benchmark_dst" ]]; then
         echo "  SRC: Folder exists"
         return 0
     fi
@@ -54,7 +65,17 @@ copy_src () {
     local c_benchmark="$benchmark_dst/$name.c"
     local h_benchmark="$benchmark_dst/$name.h"
     cp "$benchmark_src/$name.cpp" "$c_benchmark"
+    if [ $? -ne 0 ]; then
+        local ret=$? 
+        echo "  SRC: Failed to copy source, abort"
+        return ret
+    fi
     cp "$benchmark_src/$name.h" "$h_benchmark"
+    if [ $? -ne 0 ]; then
+        local ret=$? 
+        echo "  SRC: Failed to copy source, abort"
+        return ret
+    fi
     return 0
 }
 
@@ -68,7 +89,7 @@ compile_llvm () {
 
     # Check whether LLVM folder already exists in local folder
     local llvm_dir="$(get_bench_local_path $name)/llvm"
-    if [ -d "$llvm_dir" ]; then
+    if [[ $FORCE -eq 0 && -d "$llvm_dir" ]] ; then
         echo "  LLVM: Already compiled"
         return 0
     fi
@@ -112,41 +133,74 @@ compile_mlir () {
     local name=$1
 
     local mlir_dir="$(get_bench_local_path $name)/mlir"
-    if [ -d "$mlir_dir" ]; then
+    if [[ $FORCE -eq 0 && -d "$mlir_dir" ]]; then
         echo "  MLIR: Already compiled"
         return 0
     fi
 
     local src_file="$(get_bench_local_path $name)/$name.c"
     mkdir -p "$mlir_dir"
-    
+
+    # Define some MLIR passes
+    local affine_passes="--affine-data-copy-generate --affine-expand-index-ops \
+    --affine-loop-coalescing --affine-loop-fusion \
+    --affine-loop-invariant-code-motion --affine-loop-normalize \
+    --affine-loop-tile --affine-loop-unroll --affine-loop-unroll-jam \
+    --affine-parallelize --affine-pipeline-data-transfer --affine-scalrep \
+    --affine-simplify-structures --affine-super-vectorize"
+    local std_passes="-canonicalize -cse -sccp -symbol-dce -control-flow-sink \
+    -loop-invariant-code-motion -canonicalize"
+
     # Use Polygesit to compile to scf dialect 
     "$POLYGEIST_PATH/build/bin/cgeist" "$src_file" -function=$name -S -O3 > \
         "$mlir_dir/scf.mlir"
     
     # Lower scf to standard
     "$POLYGEIST_PATH/build/bin/mlir-opt" "$mlir_dir/scf.mlir" \
-        -convert-scf-to-cf $STD_PASSES > "$mlir_dir/std.mlir"
+        -convert-scf-to-cf $std_passes > "$mlir_dir/std.mlir"
 
     echo "  MLIR: Compile successfull"
     return 0
 }
 
-idx=1
-N_BENCH=$#
-for bench_name in "$@"; 
-do
-    echo "[$idx/$N_BENCH] Compiling benchmark $bench_name..."
-    idx=$((idx+1))
-    
+process_benchmark () {
+    # === Usage ===
+    # $1 is name of the benchmark 
+    #   0 if the benchmark was copied succesfully
+    #   1 if the benchmark was not copied succesfully
+    local name=$1
+
     # Copy benchmark from dynamatic folder to local folder
-    copy_src "$bench_name"
+    copy_src "$name"
+    if [ $? -ne 0 ]; then 
+        return 1
+    fi
 
     # Compile with LLVM
-    compile_llvm "$bench_name"
+    compile_llvm "$name"
 
     # Compile with MLIR
-    compile_mlir "$bench_name"
-done
+    compile_mlir "$name"
+    return 0
+}
 
+# Source environment variables for Dynamatic
+cd "$DYNAMATIC_PATH"
+source "$DYNAMATIC_PATH/.env"
+
+# Process benchmarks
+if [ $COMPILE_ALL -eq 1 ]; then
+    for name in $DYNAMATIC_REGRESION_DIR/*/; do
+        bname="$(basename $name)"
+        echo "Processing $bname"
+        process_benchmark "$bname"
+    done
+else
+    for name in "$@"; do
+        if [[ $name != --* ]]; then
+            echo "Processing $name"
+            process_benchmark "$name"
+        fi
+    done
+fi
 echo "Done!"
