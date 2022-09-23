@@ -33,3 +33,6 @@
 
 # Results folder
 /benchmarks
+
+# Build folder
+/build
