@@ -159,6 +159,10 @@ compile_mlir () {
     "$POLYGEIST_PATH/build/bin/mlir-opt" "$mlir_dir/scf.mlir" \
         -convert-scf-to-cf $std_passes > "$mlir_dir/std.mlir"
 
+    # Lower standard to LLVM IR
+    "$POLYGEIST_PATH/build/bin/cgeist" "$src_file" -function=* -emit-llvm \
+        -O3 -S > "$mlir_dir/final.ll"
+
     echo "  MLIR: Compile successfull"
     return 0
 }
