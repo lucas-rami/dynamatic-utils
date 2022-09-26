@@ -1,5 +1,7 @@
 {
     "editor.formatOnSave": true,
+    "editor.tabSize": 2,
+    "editor.defaultFormatter": "xaver.clang-format",
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
     "cmake.sourceDirectory": "${workspaceFolder:tools}/.",
     "cmake.buildDirectory": "${workspaceFolder:tools}/build",

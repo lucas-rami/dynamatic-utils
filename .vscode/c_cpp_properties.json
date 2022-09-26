@@ -5,7 +5,9 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "${env:POLYGEIST_PATH}/llvm-project/llvm/include/",
-                "${env:POLYGEIST_PATH}/build/include/"
+                "${env:POLYGEIST_PATH}/llvm-project/mlir/include/",
+                "${env:POLYGEIST_PATH}/build/include/",
+                "${env:POLYGEIST_PATH}/build/tools/mlir/include"
             ],
             "defines": [],
             "compilerPath": "${env:POLYGEIST_PATH}/build/bin/clang",
