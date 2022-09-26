@@ -1,0 +1,22 @@
+set(LLVM_LINK_COMPONENTS
+  Support
+)
+
+add_llvm_tool(tools-opt
+  tools-opt.cpp
+)
+llvm_update_compile_flags(tools-opt)
+target_link_libraries(tools-opt
+  PRIVATE
+  MLIRStatsPass
+  MLIRIR
+  MLIRLLVMDialect
+  MLIRMemRefDialect
+  MLIROptLib
+  MLIRParser
+  MLIRFuncDialect
+  MLIRSupport
+  MLIRTransforms
+  MLIRSCFDialect
+  MLIREmitCDialect
+)
