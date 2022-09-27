@@ -14,10 +14,32 @@
 #include "MLIRStatsPass.h"
 
 int main(int argc, char **argv) {
-  mlir::registerAllPasses();
-
   mlir::DialectRegistry registry;
-  registerAllDialects(registry);
+
+  // Register MLIR stuff
+  registry.insert<mlir::AffineDialect>();
+  registry.insert<mlir::LLVM::LLVMDialect>();
+  registry.insert<mlir::memref::MemRefDialect>();
+  registry.insert<mlir::async::AsyncDialect>();
+  registry.insert<mlir::func::FuncDialect>();
+  registry.insert<mlir::arith::ArithmeticDialect>();
+  registry.insert<mlir::scf::SCFDialect>();
+  registry.insert<mlir::gpu::GPUDialect>();
+  registry.insert<mlir::NVVM::NVVMDialect>();
+  registry.insert<mlir::omp::OpenMPDialect>();
+  registry.insert<mlir::math::MathDialect>();
+  registry.insert<DLTIDialect>();
+
+  // Register the standard passes we want.
+  mlir::registerCSEPass();
+  mlir::registerConvertAffineToStandardPass();
+  mlir::registerSCCPPass();
+  mlir::registerInlinerPass();
+  mlir::registerCanonicalizerPass();
+  mlir::registerSymbolDCEPass();
+  mlir::registerLoopInvariantCodeMotionPass();
+  mlir::registerConvertSCFToOpenMPPass();
+  mlir::registerAffinePasses();
 
   mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {
     return std::make_unique<MLIRStatsPass>();
