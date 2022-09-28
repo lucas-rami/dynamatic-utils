@@ -1,6 +1,6 @@
 {
     "editor.formatOnSave": true,
-    "editor.tabSize": 2,
+    "editor.detectIndentation": true,
     "editor.defaultFormatter": "xaver.clang-format",
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
     "cmake.sourceDirectory": "${workspaceFolder:tools}/.",
@@ -10,5 +10,9 @@
         "-DLLVM_DIR=${env:POLYGEIST_PATH}/build/lib/cmake/llvm",
         "-DCMAKE_C_COMPILER=${env:POLYGEIST_PATH}/build/bin/clang",
         "-DCMAKE_CXX_COMPILER=${env:POLYGEIST_PATH}/build/bin/clang++"
-    ]
+    ],
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.python"
+    },
+    "python.formatting.provider": "black"
 }

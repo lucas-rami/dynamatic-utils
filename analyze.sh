@@ -43,20 +43,22 @@ analyze_mlir () {
     "$opt" "$mlir" --ir-stats > /dev/null 2> "$mlir_dir/stats.txt"
 }
 
+analyze() {
+    local name=$1
+    echo "Processing $name"
+    analyze_llvm "$name"
+    analyze_mlir "$name"
+}
+
 # Process benchmarks
 if [ $COMPILE_ALL -eq 1 ]; then
     for name in $BENCHMARKS_DIR/*/; do
-        bname="$(basename $name)"
-        echo "Processing $name"
-        analyze_llvm "$bname"
-        analyze_mlir "$bname"
+        analyze "$(basename $name)"
     done
 else
     for name in "$@"; do
         if [[ $name != --* ]]; then
-            echo "Processing $name"
-            analyze_llvm "$name"
-            analyze_mlir "$name"
+            analyze "$name"
         fi
     done
 fi
