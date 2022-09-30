@@ -7,10 +7,16 @@ if [[ -z "$DYNAMATIC_PATH" ]]; then
     echo "Environment variable \"DYNAMATIC_PATH\" is not defined. Abort."
     exit
 fi
-if [[ -z "$POLYGEIST_PATH" ]]; then
-    echo "Environment variable \"POLYGEIST_PATH\" is not defined. Abort."
+if [[ -z "$FRONTEND_PATH" ]]; then
+    echo "Environment variable \"FRONTEND_PATH\" is not defined. Abort."
     exit
 fi
+
+# Convert potential relative path to absolute
+DYNAMATIC_DIR=`realpath "$DYNAMATIC_PATH"`
+FRONTEND_DIR=`realpath "$FRONTEND_PATH"`
+echo "Using local Dynamatic installation at \"$DYNAMATIC_DIR\""
+echo "Using local frontend installation at \"$FRONTEND_DIR\""
 
 # Parse arguments
 COMPILE_ALL=0
@@ -32,8 +38,12 @@ done
 # Define some paths
 SCRIPT_DIR=$PWD
 BENCHMARKS_DIR="$SCRIPT_DIR/benchmarks"
-DYNAMATIC_ROOT="$DYNAMATIC_PATH/dhls/etc/dynamatic"
-DYNAMATIC_REGRESION_DIR="$DYNAMATIC_ROOT/Regression_test/examples"
+POLYGEIST_DIR="$FRONTEND_DIR/Polygeist-polymer"
+POLYGEIST_BIN_DIR="$POLYGEIST_DIR/build/bin"
+POLYMER_BIN_DIR="$FRONTEND_DIR/polymer/build/bin"
+LLVM_BIN_DIR="$POLYGEIST_DIR/llvm-project/build/bin"
+DYNAMATIC_ELASTIC_DIR="$DYNAMATIC_DIR/dhls/etc/dynamatic/elastic-circuits/examples"
+DYNAMATIC_REGRESION_DIR="$DYNAMATIC_DIR/dhls/etc/dynamatic/Regression_test/examples"
 
 get_bench_local_path () {
     echo "$BENCHMARKS_DIR/$1"
@@ -95,7 +105,7 @@ compile_llvm () {
     fi
 
     # Go to Dymatic folder with Makefile to compile benchmarks
-    cd "$DYNAMATIC_ROOT/elastic-circuits/examples"
+    cd "$DYNAMATIC_ELASTIC_DIR"
 
     # Temporarily copy source files from Regression_test to elastic-circuits
     local bench_folder="$(get_bench_regression_path $name)"
@@ -137,31 +147,59 @@ compile_mlir () {
         echo "  MLIR: Already compiled"
         return 0
     fi
-
-    local src_file="$(get_bench_local_path $name)/$name.c"
     mkdir -p "$mlir_dir"
 
-    # Define some MLIR passes
-    local affine_passes="--affine-data-copy-generate --affine-expand-index-ops \
-    --affine-loop-coalescing --affine-loop-fusion \
-    --affine-loop-invariant-code-motion --affine-loop-normalize \
-    --affine-loop-tile --affine-loop-unroll --affine-loop-unroll-jam \
-    --affine-parallelize --affine-pipeline-data-transfer --affine-scalrep \
-    --affine-simplify-structures --affine-super-vectorize"
-    local std_passes="-canonicalize -cse -sccp -symbol-dce -control-flow-sink \
-    -loop-invariant-code-motion -canonicalize"
+    # C source file
+    local f_src="$(get_bench_local_path $name)/$name.c"
 
-    # Use Polygesit to compile to scf dialect 
-    "$POLYGEIST_PATH/build/bin/cgeist" "$src_file" -function=$name -S -O3 > \
-        "$mlir_dir/scf.mlir"
-    
+    # affine dialect
+    local f_affine="$mlir_dir/affine.mlir"
+
+    # affine dialect optimized
+    local f_affine_opt="$mlir_dir/affine_opt.mlir"
+
+    # std dialect optimized
+    local f_std_opt="$mlir_dir/std_opt.mlir"
+
+    # scf dialect
+    local f_scf="$mlir_dir/scf.mlir"
+
+    # std dialect (non-optimized)
+    local f_std="$mlir_dir/std.mlir"
+
+    # Include path
+    local include="$POLYGEIST_DIR/llvm-project/clang/lib/Headers/"
+
+    # Passes to convert from scf to std
+    local to_std_passes="-convert-scf-to-cf -canonicalize -cse -sccp \
+        -symbol-dce -control-flow-sink -loop-invariant-code-motion \
+        -canonicalize"
+
+    #### Compile WITH polyhedral optimization
+    # f_src -> f_affine -> f_affine_opt -> f_std_opt
+
+    # # Use Polygeist to compile to affine dialect
+    "$POLYGEIST_BIN_DIR/mlir-clang" "$f_src" -I "$include" -function=$name -S \
+        -O3 -raise-scf-to-affine > "$f_affine"
+
+    # # Use Polymer to optimize affine dialect
+    "$POLYMER_BIN_DIR/polymer-opt" "$f_affine" -reg2mem -extract-scop-stmt \
+        -pluto-opt -allow-unregistered-dialect > "$f_affine_opt" 2>/dev/null
+
+    # # Lower scf to standard
+    "$LLVM_BIN_DIR/mlir-opt" "$f_affine_opt" -lower-affine -inline \
+        $to_std_passes > "$f_std_opt"
+
+    #### Compile WITHOUT polyhedral optimization
+    # f_src -> f_scf -> f_std
+
+
+    # Use Polygeist to compile to scf dialect 
+    "$POLYGEIST_BIN_DIR/mlir-clang" "$f_src" -I "$include" -function=$name -S \
+        -O3 > "$f_scf"
+
     # Lower scf to standard
-    "$POLYGEIST_PATH/build/bin/mlir-opt" "$mlir_dir/scf.mlir" \
-        -convert-scf-to-cf $std_passes > "$mlir_dir/std.mlir"
-
-    # Lower standard to LLVM IR
-    "$POLYGEIST_PATH/build/bin/cgeist" "$src_file" -function=* -emit-llvm \
-        -O3 -S > "$mlir_dir/final.ll"
+    "$LLVM_BIN_DIR/mlir-opt" "$f_scf" $to_std_passes > "$f_std"
 
     echo "  MLIR: Compile successfull"
     return 0
@@ -189,8 +227,8 @@ process_benchmark () {
 }
 
 # Source environment variables for Dynamatic
-cd "$DYNAMATIC_PATH"
-source "$DYNAMATIC_PATH/.env"
+cd "$DYNAMATIC_DIR"
+source .env
 
 # Process benchmarks
 if [ $COMPILE_ALL -eq 1 ]; then
