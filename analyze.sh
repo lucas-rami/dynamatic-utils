@@ -2,11 +2,18 @@
 # === Usage ===
 # TODO
 
+# NOTE This should use Polymer, but I forgot to include the flag to disable
+# checking for ABI breaking changes and I don't want to rebuild it
 # Check that required environment variables are defined
 if [[ -z "$POLYGEIST_PATH" ]]; then
     echo "Environment variable \"POLYGEIST_PATH\" is not defined. Abort."
     exit
 fi
+
+# Convert potential relative path to absolute
+POLYGEIST_DIR=`realpath "$POLYGEIST_PATH"`
+echo "Using local frontend installation at \"$POLYGEIST_DIR\""
+echo ""
 
 # Parse arguments
 COMPILE_ALL=0
@@ -40,7 +47,9 @@ analyze_mlir () {
     local opt="$SCRIPT_DIR/build/bin/tools-opt"
     local mlir_dir="$BENCHMARKS_DIR/$1/mlir"
     local mlir="$mlir_dir/std.mlir"
+    local mlir_opt="$mlir_dir/std_opt.mlir"
     "$opt" "$mlir" --ir-stats > /dev/null 2> "$mlir_dir/stats.txt"
+    "$opt" "$mlir_opt" --ir-stats > /dev/null 2> "$mlir_dir/stats_opt.txt"
 }
 
 analyze() {

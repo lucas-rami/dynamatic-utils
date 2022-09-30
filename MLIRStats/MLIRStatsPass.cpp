@@ -8,7 +8,7 @@ using namespace mlir;
 
 void MLIRStatsPass::runOnOperation() {
   // Get the current operation being operated on.
-  func::FuncOp op = getOperation();
+  FuncOp op = getOperation();
   MLIRStatsAnalysis &analysis = getAnalysis<MLIRStatsAnalysis>();
   analysis.runAnalysis(op);
 }

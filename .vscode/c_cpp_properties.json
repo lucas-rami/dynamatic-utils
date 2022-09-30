@@ -4,13 +4,13 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "${env:POLYGEIST_PATH}/llvm-project/llvm/include/",
-                "${env:POLYGEIST_PATH}/llvm-project/mlir/include/",
-                "${env:POLYGEIST_PATH}/build/include/",
-                "${env:POLYGEIST_PATH}/build/tools/mlir/include"
+                "${env:FRONTEND_PATH}/Polygeist-polymer/llvm-project/build/include/",
+                "${env:FRONTEND_PATH}/Polygeist-polymer/llvm-project/build/tools/mlir/include",
+                "${env:FRONTEND_PATH}/Polygeist-polymer/llvm-project/llvm/include/",
+                "${env:FRONTEND_PATH}/Polygeist-polymer/llvm-project/mlir/include/"
             ],
             "defines": [],
-            "compilerPath": "${env:POLYGEIST_PATH}/build/bin/clang",
+            "compilerPath": "${env:FRONTEND_PATH}/Polygeist-polymer/llvm-project/build/bin/clang",
             "cStandard": "c17",
             "cppStandard": "c++17",
             "intelliSenseMode": "linux-clang-x64",

@@ -8,8 +8,7 @@
 using namespace mlir;
 
 struct MLIRStatsPass
-    : public PassWrapper<MLIRStatsPass, OperationPass<func::FuncOp>> {
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(MLIRStatsPass)
+    : public PassWrapper<MLIRStatsPass, OperationPass<FuncOp>> {
 
   void runOnOperation() override;
   StringRef getArgument() const override { return "ir-stats"; }

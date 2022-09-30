@@ -10,7 +10,7 @@ struct MLIRStatsAnalysis {
 
   MLIRStatsAnalysis(Operation *op);
 
-  void runAnalysis(func::FuncOp op);
+  void runAnalysis(FuncOp op);
 };
 
 #endif //_TOOLS_MLIR_STATS_ANALYSIS_H

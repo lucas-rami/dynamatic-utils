@@ -3,7 +3,7 @@
 
 MLIRStatsAnalysis::MLIRStatsAnalysis(Operation *op) {}
 
-void MLIRStatsAnalysis::runAnalysis(func::FuncOp op) {
+void MLIRStatsAnalysis::runAnalysis(FuncOp op) {
   auto blocks = &op.getBlocks();
   std::cerr << blocks->size() << std::endl;
 
