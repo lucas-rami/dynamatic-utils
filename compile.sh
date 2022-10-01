@@ -15,8 +15,8 @@ fi
 # Convert potential relative path to absolute
 DYNAMATIC_DIR=`realpath "$DYNAMATIC_PATH"`
 FRONTEND_DIR=`realpath "$FRONTEND_PATH"`
-echo "Using local Dynamatic installation at \"$DYNAMATIC_DIR\""
-echo "Using local frontend installation at \"$FRONTEND_DIR\""
+echo "Using local Dynamatic installation at $DYNAMATIC_DIR"
+echo "Using local frontend installation at $FRONTEND_DIR"
 echo ""
 
 # Parse arguments
@@ -193,7 +193,6 @@ compile_mlir () {
 
     #### Compile WITHOUT polyhedral optimization
     # f_src -> f_scf -> f_std
-
 
     # Use Polygeist to compile to scf dialect 
     "$POLYGEIST_BIN_DIR/mlir-clang" "$f_src" -I "$include" -function=$name -S \

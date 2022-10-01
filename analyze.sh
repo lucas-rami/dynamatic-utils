@@ -32,11 +32,23 @@ done
 SCRIPT_DIR=$PWD
 BENCHMARKS_DIR="$SCRIPT_DIR/benchmarks"
 
+get_bench_local_path () {
+    echo "$BENCHMARKS_DIR/$1"
+}
+
+check_present () {
+    local name=$1
+    if [ ! -d "$(get_bench_local_path $name)" ]; then
+        return 1
+    fi
+    return 0
+}
+
 analyze_llvm () {
     local name=$1
-    local opt="$POLYGEIST_PATH/build/bin/opt"
+    local opt="$POLYGEIST_DIR/build/bin/opt"
     local llvm_pass="$SCRIPT_DIR/build/LLVMIRStats/libLLVMIrStats.so"
-    local llvm_dir="$BENCHMARKS_DIR/$1/llvm"
+    local llvm_dir="$(get_bench_local_path $name)/llvm"
     local llvm_ir="$llvm_dir/final.ll"
     "$opt" -load "$llvm_pass" -ir-stats -enable-new-pm=0 "$llvm_ir" > \
         /dev/null 2> "$llvm_dir/stats.txt"
@@ -45,7 +57,7 @@ analyze_llvm () {
 analyze_mlir () {
     local name=$1
     local opt="$SCRIPT_DIR/build/bin/tools-opt"
-    local mlir_dir="$BENCHMARKS_DIR/$1/mlir"
+    local mlir_dir="$(get_bench_local_path $name)/mlir"
     local mlir="$mlir_dir/std.mlir"
     local mlir_opt="$mlir_dir/std_opt.mlir"
     "$opt" "$mlir" --ir-stats > /dev/null 2> "$mlir_dir/stats.txt"
@@ -55,8 +67,24 @@ analyze_mlir () {
 analyze() {
     local name=$1
     echo "Processing $name"
+
+    check_present "$name"
+    if [ $? -ne 0 ]; then 
+        echo "  SRC: Benchmark does not exist"
+        return 1
+    fi
+
     analyze_llvm "$name"
+    if [ $? -ne 0 ]; then 
+        echo "  LLVM:  Analysis failed"
+        return 1
+    fi
+
     analyze_mlir "$name"
+    if [ $? -ne 0 ]; then
+        echo "  MLIR:  Analysis failed"
+        return 1
+    fi
 }
 
 # Process benchmarks
