@@ -51,7 +51,7 @@ analyze_llvm () {
     local llvm_dir="$(get_bench_local_path $name)/llvm"
     local llvm_ir="$llvm_dir/final.ll"
     "$opt" -load "$llvm_pass" -ir-stats -enable-new-pm=0 "$llvm_ir" > \
-        /dev/null 2> "$llvm_dir/stats.txt"
+        /dev/null 2> "$llvm_dir/stats.toml"
 }
 
 analyze_mlir () {
@@ -66,7 +66,7 @@ analyze_mlir () {
 
 analyze() {
     local name=$1
-    echo "Processing $name"
+    echo "Analyzing $name"
 
     check_present "$name"
     if [ $? -ne 0 ]; then 

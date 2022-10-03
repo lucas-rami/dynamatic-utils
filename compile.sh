@@ -39,7 +39,7 @@ done
 # Define some paths
 SCRIPT_DIR=$PWD
 BENCHMARKS_DIR="$SCRIPT_DIR/benchmarks"
-POLYGEIST_DIR="$FRONTEND_DIR/Polygeist-polymer"
+POLYGEIST_DIR="$FRONTEND_DIR/polygeist"
 POLYGEIST_BIN_DIR="$POLYGEIST_DIR/build/bin"
 POLYMER_BIN_DIR="$FRONTEND_DIR/polymer/build/bin"
 LLVM_BIN_DIR="$POLYGEIST_DIR/llvm-project/build/bin"
@@ -179,15 +179,15 @@ compile_mlir () {
     #### Compile WITH polyhedral optimization
     # f_src -> f_affine -> f_affine_opt -> f_std_opt
 
-    # # Use Polygeist to compile to affine dialect
+    # Use Polygeist to compile to affine dialect
     "$POLYGEIST_BIN_DIR/mlir-clang" "$f_src" -I "$include" -function=$name -S \
         -O3 -raise-scf-to-affine > "$f_affine"
 
-    # # Use Polymer to optimize affine dialect
+    # Use Polymer to optimize affine dialect
     "$POLYMER_BIN_DIR/polymer-opt" "$f_affine" -reg2mem -extract-scop-stmt \
         -pluto-opt -allow-unregistered-dialect > "$f_affine_opt" 2>/dev/null
 
-    # # Lower scf to standard
+    # Lower scf to standard
     "$LLVM_BIN_DIR/mlir-opt" "$f_affine_opt" -lower-affine -inline \
         $to_std_passes > "$f_std_opt"
 
