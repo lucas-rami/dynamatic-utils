@@ -11,8 +11,9 @@ if(POLICY CMP0077)
 endif()
 
 # Set C++ standard
-# set(CXX_STANDARD 17)
-# set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+message(STATUS "CXX standard is ${CXX_STANDARD}")
 
 # Find LLVM and MLIR
 find_package(LLVM REQUIRED CONFIG)

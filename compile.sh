@@ -199,7 +199,7 @@ compile_mlir () {
         -O3 > "$f_scf"
 
     # Lower scf to standard
-    "$LLVM_BIN_DIR/mlir-opt" "$f_scf" $to_std_passes > "$f_std"
+    "$LLVM_BIN_DIR/mlir-opt" "$f_scf" -lower-affine $to_std_passes > "$f_std"
 
     echo "  MLIR: Compile successfull"
     return 0

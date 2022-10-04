@@ -9,7 +9,9 @@ set(LIBS
   MLIRStatsAnalysis
 ) 
 
+set(TARGET tools-opt PROPERTY CXX_STANDARD 20)
+
 add_llvm_executable(tools-opt tools-opt.cpp)
  
 llvm_update_compile_flags(tools-opt)
-target_link_libraries(tools-opt PRIVATE ${LIBS})
+target_link_libraries(tools-opt PRIVATE ${LIBS} cxx_std_20)

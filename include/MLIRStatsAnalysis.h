@@ -1,6 +1,7 @@
-#ifndef _TOOLS_MLIR_STATS_ANALYSIS_H
-#define _TOOLS_MLIR_STATS_ANALYSIS_H
+#ifndef _TOOLS_MLIR_STATS_ANALYSIS_H_
+#define _TOOLS_MLIR_STATS_ANALYSIS_H_
 
+#include "IRStats.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Operation.h"
 
@@ -11,6 +12,10 @@ struct MLIRStatsAnalysis {
   MLIRStatsAnalysis(Operation *op);
 
   void runAnalysis(FuncOp op);
+
+private:
+  BasicBlockStats analyzeBasicBlocks(FuncOp op);
+  std::optional<InstructionStats> analyzeInstrutions(FuncOp op);
 };
 
-#endif //_TOOLS_MLIR_STATS_ANALYSIS_H
+#endif //_TOOLS_MLIR_STATS_ANALYSIS_H_

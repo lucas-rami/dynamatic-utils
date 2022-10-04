@@ -60,7 +60,7 @@ analyze_mlir () {
     local mlir_dir="$(get_bench_local_path $name)/mlir"
     local mlir="$mlir_dir/std.mlir"
     local mlir_opt="$mlir_dir/std_opt.mlir"
-    "$opt" "$mlir" --ir-stats > /dev/null 2> "$mlir_dir/stats.txt"
+    "$opt" "$mlir" --ir-stats > /dev/null #2> "$mlir_dir/stats.txt"
     "$opt" "$mlir_opt" --ir-stats > /dev/null 2> "$mlir_dir/stats_opt.txt"
 }
 
