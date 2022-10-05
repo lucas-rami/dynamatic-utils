@@ -184,8 +184,9 @@ compile_mlir () {
         -O3 -raise-scf-to-affine > "$f_affine"
 
     # Use Polymer to optimize affine dialect
-    "$POLYMER_BIN_DIR/polymer-opt" "$f_affine" -reg2mem -extract-scop-stmt \
-        -pluto-opt -allow-unregistered-dialect > "$f_affine_opt" 2>/dev/null
+    "$POLYMER_BIN_DIR/polymer-opt" "$f_affine" \
+        "-annotate-scop=functions='$name'" -reg2mem -extract-scop-stmt \
+        -pluto-opt -allow-unregistered-dialect > "$f_affine_opt" 2>/dev/null 
 
     # Lower scf to standard
     "$LLVM_BIN_DIR/mlir-opt" "$f_affine_opt" -lower-affine -inline \
