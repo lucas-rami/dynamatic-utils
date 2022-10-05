@@ -5,8 +5,12 @@ bool print_stats(const BasicBlockStats &bb,
   if (!instr.hasValue()) {
     return false;
   }
-  bb.print();
-  std::cerr << std::endl;
-  instr->print();
+  json blocks = bb.to_json();
+  json instructions = instr->to_json();
+  json stats = {
+      {"basic-blocks", blocks},
+      {"instructions", instructions},
+  };
+  std::cerr << stats.dump() << std::endl;
   return true;
 }

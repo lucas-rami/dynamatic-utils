@@ -51,7 +51,7 @@ analyze_llvm () {
     local llvm_dir="$(get_bench_local_path $name)/llvm"
     local llvm_ir="$llvm_dir/final.ll"
     "$opt" -load "$llvm_pass" -ir-stats -enable-new-pm=0 "$llvm_ir" > \
-        /dev/null 2> "$llvm_dir/stats.toml"
+        /dev/null 2> "$llvm_dir/stats.json"
 }
 
 analyze_mlir () {
@@ -60,8 +60,8 @@ analyze_mlir () {
     local mlir_dir="$(get_bench_local_path $name)/mlir"
     local mlir="$mlir_dir/std.mlir"
     local mlir_opt="$mlir_dir/std_opt.mlir"
-    "$opt" "$mlir" --ir-stats > /dev/null 2> "$mlir_dir/stats.toml"
-    "$opt" "$mlir_opt" --ir-stats > /dev/null 2> "$mlir_dir/stats_opt.toml"
+    "$opt" "$mlir" --ir-stats > /dev/null 2> "$mlir_dir/stats.json"
+    "$opt" "$mlir_opt" --ir-stats > /dev/null 2> "$mlir_dir/stats_opt.json"
 }
 
 analyze() {

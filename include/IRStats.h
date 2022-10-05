@@ -1,10 +1,13 @@
 #ifndef _TOOLS_IR_STATS_H_
 #define _TOOLS_IR_STATS_H_
 
+#include "json.hpp"
 #include "llvm/ADT/Optional.h"
 #include <iostream>
 #include <string>
 #include <unordered_map>
+
+using json = nlohmann::json;
 
 // Types of instructions
 const std::string MEMORY_OP{"memory"};
@@ -20,10 +23,7 @@ const std::string ALL_TYPES[]{MEMORY_OP, ARITHMETIC_OP, LOGICAL_OP, CONTROL_OP,
 struct BasicBlockStats {
   uint count;
 
-  void print() const {
-    std::cerr << "[basic-block]" << std::endl;
-    std::cerr << "count = " << count << std::endl;
-  }
+  json to_json() const { return {{"count", count}}; }
 };
 
 // Information on instructions
@@ -31,13 +31,12 @@ struct InstructionStats {
   uint count;
   std::unordered_map<std::string, int> typeToCount;
 
-  void print() const {
-    std::cerr << "[instruction]" << std::endl;
-    std::cerr << "count = " << count << std::endl;
+  json to_json() const {
+    json data{{"count", count}};
     for (auto const &typeAndCount : typeToCount) {
-      std::cerr << "type." << typeAndCount.first << " = " << typeAndCount.second
-                << std::endl;
+      data["type"][typeAndCount.first] = typeAndCount.second;
     }
+    return data;
   }
 };
 
