@@ -3,16 +3,16 @@
         {
             "name": "Linux",
             "includePath": [
-                "${workspaceFolder}/**",
+                "${workspaceFolder}/include/",
                 "${env:FRONTEND_PATH}/polygeist/llvm-project/build/include/",
                 "${env:FRONTEND_PATH}/polygeist/llvm-project/build/tools/mlir/include",
                 "${env:FRONTEND_PATH}/polygeist/llvm-project/llvm/include/",
                 "${env:FRONTEND_PATH}/polygeist/llvm-project/mlir/include/"
             ],
             "defines": [],
-            "compilerPath": "${env:FRONTEND_PATH}/polygeist/llvm-project/build/bin/clang",
+            "compilerPath": "${env:FRONTEND_PATH}/polygeist/llvm-project/build/bin/clang++",
             "cStandard": "c17",
-            "cppStandard": "c++17",
+            "cppStandard": "c++20",
             "intelliSenseMode": "linux-clang-x64",
             "configurationProvider": "ms-vscode.makefile-tools"
         }

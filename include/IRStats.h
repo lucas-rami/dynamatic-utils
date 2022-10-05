@@ -1,6 +1,7 @@
 #ifndef _TOOLS_IR_STATS_H_
 #define _TOOLS_IR_STATS_H_
 
+#include "llvm/ADT/Optional.h"
 #include <iostream>
 #include <string>
 #include <unordered_map>
@@ -19,7 +20,7 @@ const std::string ALL_TYPES[]{MEMORY_OP, ARITHMETIC_OP, LOGICAL_OP, CONTROL_OP,
 struct BasicBlockStats {
   uint count;
 
-  void print() {
+  void print() const {
     std::cerr << "[basic-block]" << std::endl;
     std::cerr << "count = " << count << std::endl;
   }
@@ -30,23 +31,17 @@ struct InstructionStats {
   uint count;
   std::unordered_map<std::string, int> typeToCount;
 
-  void print() {
+  void print() const {
     std::cerr << "[instruction]" << std::endl;
     std::cerr << "count = " << count << std::endl;
-    for (auto const &[instrType, instrCount] : typeToCount) {
-      std::cerr << "type." << instrType << " = " << instrCount << std::endl;
+    for (auto const &typeAndCount : typeToCount) {
+      std::cerr << "type." << typeAndCount.first << " = " << typeAndCount.second
+                << std::endl;
     }
   }
 };
 
-bool print_stats(BasicBlockStats &bb, std::optional<InstructionStats> &instr) {
-  if (!instr) {
-    return false;
-  }
-  bb.print();
-  std::cerr << std::endl;
-  instr->print();
-  return true;
-}
+bool print_stats(const BasicBlockStats &bb,
+                 const llvm::Optional<InstructionStats> &instr);
 
 #endif //_TOOLS_IR_STATS_H_

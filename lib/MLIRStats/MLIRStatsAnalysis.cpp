@@ -1,4 +1,5 @@
-#include "MLIRStatsAnalysis.h"
+#include "MLIRStats/MLIRStatsAnalysis.h"
+#include "llvm/ADT/APInt.h"
 #include <set>
 
 using namespace std;
@@ -15,7 +16,8 @@ BasicBlockStats MLIRStatsAnalysis::analyzeBasicBlocks(FuncOp op) {
   return BasicBlockStats{static_cast<uint>((&op.getBlocks())->size())};
 }
 
-optional<InstructionStats> MLIRStatsAnalysis::analyzeInstrutions(FuncOp op) {
+llvm::Optional<InstructionStats>
+MLIRStatsAnalysis::analyzeInstrutions(FuncOp op) {
   // Group instructions by type and count them
   unordered_map<string, set<string>> instrTypeToOpcodes{
       {MEMORY_OP, {"memref.load", "memref.store"}},
@@ -50,9 +52,9 @@ optional<InstructionStats> MLIRStatsAnalysis::analyzeInstrutions(FuncOp op) {
       auto opName = op.getName().getStringRef().str();
 
       bool foundType = false;
-      for (auto const &[instrType, opcodes] : instrTypeToOpcodes) {
-        if (opcodes.find(opName) != opcodes.end()) {
-          instrTypeToCount[instrType] += 1;
+      for (auto const &typeAndOpcodes : instrTypeToOpcodes) {
+        if (typeAndOpcodes.second.find(opName) != typeAndOpcodes.second.end()) {
+          instrTypeToCount[typeAndOpcodes.first] += 1;
           foundType = true;
           break;
         }

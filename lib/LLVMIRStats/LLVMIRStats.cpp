@@ -39,7 +39,7 @@ private:
     return BasicBlockStats{bbCount};
   }
 
-  optional<InstructionStats> analyzeInstructions(Function &f) {
+  Optional<InstructionStats> analyzeInstructions(Function &f) {
     // Group instructions by type and count them
     unordered_map<string, set<string>> instrTypeToOpcodes{
         {MEMORY_OP, {"load", "store"}},
@@ -65,9 +65,10 @@ private:
       // Check which category the instruction belongs to
       string instrOpcode{instr->getOpcodeName()};
       bool foundType = false;
-      for (auto const &[instrType, opcodes] : instrTypeToOpcodes) {
-        if (opcodes.find(instrOpcode) != opcodes.end()) {
-          instrTypeToCount[instrType] += 1;
+      for (auto const &typeAndOpcodes : instrTypeToOpcodes) {
+        if (typeAndOpcodes.second.find(instrOpcode) !=
+            typeAndOpcodes.second.end()) {
+          instrTypeToCount[typeAndOpcodes.first] += 1;
           foundType = true;
           break;
         }

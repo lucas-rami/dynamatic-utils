@@ -1,5 +1,5 @@
-#include "MLIRStatsPass.h"
-#include "MLIRStatsAnalysis.h"
+#include "MLIRStats/MLIRStatsPass.h"
+#include "MLIRStats/MLIRStatsAnalysis.h"
 #include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/Pass.h"

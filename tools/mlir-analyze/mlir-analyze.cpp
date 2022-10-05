@@ -1,3 +1,4 @@
+#include "MLIRStats/MLIRStatsPass.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/InitAllDialects.h"
@@ -10,8 +11,6 @@
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
-
-#include "MLIRStatsPass.h"
 
 int main(int argc, char **argv) {
   mlir::DialectRegistry registry;

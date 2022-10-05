@@ -15,7 +15,7 @@ struct MLIRStatsAnalysis {
 
 private:
   BasicBlockStats analyzeBasicBlocks(FuncOp op);
-  std::optional<InstructionStats> analyzeInstrutions(FuncOp op);
+  llvm::Optional<InstructionStats> analyzeInstrutions(FuncOp op);
 };
 
 #endif //_TOOLS_MLIR_STATS_ANALYSIS_H_

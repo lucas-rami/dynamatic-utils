@@ -7,11 +7,9 @@ set(LIBS
   MLIROptLib
   MLIRStatsPass
   MLIRStatsAnalysis
-) 
+)
 
-set(TARGET tools-opt PROPERTY CXX_STANDARD 20)
+add_llvm_executable(mlir-analyze mlir-analyze.cpp)
 
-add_llvm_executable(tools-opt tools-opt.cpp)
- 
-llvm_update_compile_flags(tools-opt)
-target_link_libraries(tools-opt PRIVATE ${LIBS} cxx_std_20)
+llvm_update_compile_flags(mlir-analyze)
+target_link_libraries(mlir-analyze PRIVATE ${LIBS})

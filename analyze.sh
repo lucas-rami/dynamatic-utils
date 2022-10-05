@@ -47,7 +47,7 @@ check_present () {
 analyze_llvm () {
     local name=$1
     local opt="$POLYGEIST_DIR/build/bin/opt"
-    local llvm_pass="$SCRIPT_DIR/build/LLVMIRStats/libLLVMIrStats.so"
+    local llvm_pass="$SCRIPT_DIR/build/lib/LLVMIRStats/libLLVMIrStats.so"
     local llvm_dir="$(get_bench_local_path $name)/llvm"
     local llvm_ir="$llvm_dir/final.ll"
     "$opt" -load "$llvm_pass" -ir-stats -enable-new-pm=0 "$llvm_ir" > \
@@ -56,12 +56,12 @@ analyze_llvm () {
 
 analyze_mlir () {
     local name=$1
-    local opt="$SCRIPT_DIR/build/bin/tools-opt"
+    local opt="$SCRIPT_DIR/build/bin/mlir-analyze"
     local mlir_dir="$(get_bench_local_path $name)/mlir"
     local mlir="$mlir_dir/std.mlir"
     local mlir_opt="$mlir_dir/std_opt.mlir"
-    "$opt" "$mlir" --ir-stats > /dev/null #2> "$mlir_dir/stats.txt"
-    "$opt" "$mlir_opt" --ir-stats > /dev/null 2> "$mlir_dir/stats_opt.txt"
+    "$opt" "$mlir" --ir-stats > /dev/null 2> "$mlir_dir/stats.toml"
+    "$opt" "$mlir_opt" --ir-stats > /dev/null 2> "$mlir_dir/stats_opt.toml"
 }
 
 analyze() {
