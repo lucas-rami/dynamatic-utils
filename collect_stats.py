@@ -1,7 +1,7 @@
 # Libraries
 from bokeh.io import show
-from bokeh.layouts import column
 from bokeh.models.layouts import Panel, Tabs
+from bokeh.io import show
 
 # Local
 from viz.parser import parse, Stats
@@ -12,23 +12,20 @@ def run() -> None:
     stats: Stats = parse()
 
     blocks = Panel(
-        child=compare_scalar(stats, lambda ir: ir.n_blocks, "BBs"),
+        child=compare_scalar(stats, lambda ir: ir.n_blocks),
         title="Basic Blocks",
     )
     instructions = Panel(
         child=Tabs(
             tabs=[
                 Panel(
-                    child=compare_scalar(
-                        stats, lambda ir: ir.instructions.counts, "instructions"
-                    ),
+                    child=compare_scalar(stats, lambda ir: ir.instructions.counts),
                     title="All",
                 ),
                 Panel(
                     child=compare_scalar(
                         stats,
                         lambda ir: ir.instructions.n_real_instructions,
-                        '"real"instructions',
                     ),
                     title='"Real"',
                 ),

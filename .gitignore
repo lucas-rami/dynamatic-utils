@@ -36,3 +36,6 @@
 
 # Build folder
 /build
+
+# pycache
+__pycache__
