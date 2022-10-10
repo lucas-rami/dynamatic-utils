@@ -26,22 +26,19 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 
 # LLVM pass to gather statistics on IR
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
+set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin)
+set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib)
 include(TableGen)
 include(AddLLVM)
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 add_definitions(${LLVM_DEFINITIONS_LIST})
 include_directories(${LLVM_INCLUDE_DIRS})
+link_directories(${LLVM_BUILD_LIBRARY_DIR})
 
 # MLIR pass to gather statistics on IR
-set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin)
-set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib)
 set(MLIR_BINARY_DIR ${CMAKE_BINARY_DIR})
-
 list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
 include(AddMLIR)
-
-link_directories(${LLVM_BUILD_LIBRARY_DIR})
-add_definitions(${LLVM_DEFINITIONS})
 include_directories(${MLIR_INCLUDE_DIRS})
 
 add_subdirectory(lib)

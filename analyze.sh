@@ -11,8 +11,8 @@ if [[ -z "$POLYGEIST_PATH" ]]; then
 fi
 
 # Convert potential relative path to absolute
-POLYGEIST_DIR=`realpath "$POLYGEIST_PATH"`
-echo "Using local frontend installation at \"$POLYGEIST_DIR\""
+FRONTEND_DIR=`realpath "$FRONTEND_PATH"`
+echo "Using local frontend installation at \"$FRONTEND_DIR\""
 echo ""
 
 # Parse arguments
@@ -46,8 +46,8 @@ check_present () {
 
 analyze_llvm () {
     local name=$1
-    local opt="$POLYGEIST_DIR/build/bin/opt"
-    local llvm_pass="$SCRIPT_DIR/build/lib/LLVMIRStats/libLLVMIrStats.so"
+    local opt="$FRONTEND_DIR/polygeist/llvm-project/build/bin/opt"
+    local llvm_pass="$SCRIPT_DIR/build/lib/LLVMIrStats.so"
     local llvm_dir="$(get_bench_local_path $name)/llvm"
     local llvm_ir="$llvm_dir/final.ll"
     "$opt" -load "$llvm_pass" -ir-stats -enable-new-pm=0 "$llvm_ir" > \

@@ -22,8 +22,14 @@ const std::string ALL_TYPES[]{MEMORY_OP, ARITHMETIC_OP, LOGICAL_OP, CONTROL_OP,
 // Information on basic blocks
 struct BasicBlockStats {
   uint count;
+  std::vector<uint> predCounts;
+  std::vector<uint> succCounts;
 
-  json to_json() const { return {{"count", count}}; }
+  json to_json() const {
+    return {{"count", count},
+            {"predCounts", predCounts},
+            {"succCounts", succCounts}};
+  }
 };
 
 // Information on instructions

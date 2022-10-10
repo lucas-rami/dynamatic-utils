@@ -1,4 +1,5 @@
 #include "MLIRStats/MLIRStatsAnalysis.h"
+#include "mlir/IR/BlockSupport.h"
 #include "llvm/ADT/APInt.h"
 #include <set>
 
@@ -13,7 +14,30 @@ void MLIRStatsAnalysis::runAnalysis(FuncOp op) {
 }
 
 BasicBlockStats MLIRStatsAnalysis::analyzeBasicBlocks(FuncOp op) {
-  return BasicBlockStats{static_cast<uint>((&op.getBlocks())->size())};
+  std::vector<uint> predCounts{};
+  std::vector<uint> succCounts{};
+
+  auto blocks = &op.getBlocks();
+  for (auto bbIter = blocks->begin(), endBBIter = blocks->end();
+       bbIter != endBBIter; ++bbIter) {
+    Block &bb = *bbIter;
+
+    // Count number of predecessors
+    uint n_preds{0};
+    for (auto pred : bb.getPredecessors()) {
+      n_preds += 1;
+    }
+    predCounts.push_back(n_preds);
+
+    // Count number of successors
+    uint n_succs{0};
+    for (auto succ : bb.getSuccessors()) {
+      n_succs += 1;
+    }
+    succCounts.push_back(n_succs);
+  }
+  return BasicBlockStats{static_cast<uint>((&op.getBlocks())->size()),
+                         predCounts, succCounts};
 }
 
 llvm::Optional<InstructionStats>
