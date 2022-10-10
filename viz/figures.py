@@ -158,11 +158,14 @@ def boxplot(
     return fig
 
 
-def compare_scalar(stats: Stats, f_stats: Callable[[IRStats], int]) -> LayoutDOM:
+def compare_scalar(
+    stats: Stats, f_stats: Callable[[IRStats], int], nest: int = 0
+) -> LayoutDOM:
 
+    fig_height = (__HEIGHT_SCREEN - nest * __HEIGHT_TAB) // 2
     fig_args = {
         "width": __WIDTH_SCREEN - __WIDTH_BOXPLOT,
-        "height": __HEIGHT_FIG,
+        "height": fig_height,
         "tools": "save, xwheel_zoom, xpan, reset",
         "toolbar_location": "above",
         "active_drag": "xpan",
@@ -176,11 +179,10 @@ def compare_scalar(stats: Stats, f_stats: Callable[[IRStats], int]) -> LayoutDOM
             "mlir": [f_stats(s.mlir) for s in stats.values()],
         }
     )
+    max_y = max(max(src_abs.data["llvm"]), max(src_abs.data["mlir"])) + 1
     fig_abs = figure(
         x_range=FactorRange(*src_abs.data["benchmarks"], bounds="auto"),
-        y_range=Range1d(
-            0, max(max(src_abs.data["llvm"]), max(src_abs.data["mlir"])) + 1
-        ),
+        y_range=Range1d(0, max_y),
         title="Absolute number per IR",
         **fig_args,
     )
@@ -217,8 +219,9 @@ def compare_scalar(stats: Stats, f_stats: Callable[[IRStats], int]) -> LayoutDOM
         },
         fig_args={
             "title": "Distribution per IR",
-            "height": __HEIGHT_FIG,
+            "height": fig_height,
             "width": __WIDTH_BOXPLOT,
+            "y_range": Range1d(0, max_y),
         },
         boxplot_args=BoxPlotParams(
             upper_box={"fill_color": __COLORS[2]},
@@ -258,8 +261,9 @@ def compare_scalar(stats: Stats, f_stats: Callable[[IRStats], int]) -> LayoutDOM
         {"difference": np.array(src_rel.data["counts"])},
         fig_args={
             "title": "Distribution (MLIR - LLVM)",
-            "height": __HEIGHT_FIG,
+            "height": fig_height,
             "width": __WIDTH_BOXPLOT,
+            "y_range": Range1d(-max_val - 1, max_val + 1),
         },
         boxplot_args=BoxPlotParams(
             upper_box={"fill_color": __COLORS[2]},
@@ -270,12 +274,11 @@ def compare_scalar(stats: Stats, f_stats: Callable[[IRStats], int]) -> LayoutDOM
     return column(row(box_abs, fig_abs), row(box_rel, fig_rel))
 
 
-def compare_instruction_types(stats: Stats) -> Tabs:
+def compare_instruction_types(stats: Stats, nest: int = 0) -> Tabs:
     panels: List[Panel] = []
     for instr_type in sorted(InstructionStats.all_instr_types):
         layout = compare_scalar(
-            stats,
-            lambda s: s.instructions.counts_per_type[instr_type],
+            stats, lambda s: s.instructions.counts_per_type[instr_type], nest + 1
         )
         panels.append(Panel(child=layout, title=instr_type))
 
@@ -303,7 +306,7 @@ __COLORS: Final[Sequence[RGB]] = [
 ]
 __LLVM_COLOR: Final[RGB] = __COLORS[0]
 __MLIR_COLOR: Final[RGB] = __COLORS[1]
-__WIDTH_BENCH: Final[int] = 50
 __WIDTH_SCREEN: Final[int] = 1900
+__HEIGHT_SCREEN: Final[int] = 1000
 __WIDTH_BOXPLOT: Final[int] = 400
-__HEIGHT_FIG: Final[int] = 500
+__HEIGHT_TAB: Final[int] = 30

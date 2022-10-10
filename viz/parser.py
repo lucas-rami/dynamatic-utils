@@ -2,9 +2,20 @@ import os
 import json
 from dataclasses import dataclass
 
-from typing import ClassVar, Set, Mapping, Final, Dict
+from typing import ClassVar, Set, Mapping, Final, Dict, Sequence
 
 Stats = Mapping[str, "BenchStats"]
+
+
+@dataclass(frozen=True)
+class BasicBlockStats:
+    counts: int
+    pred_counts: Sequence[int]
+    succ_counts: Sequence[int]
+
+    @staticmethod
+    def from_json(data: Mapping) -> "BasicBlockStats":
+        return BasicBlockStats(data["count"], data["predCounts"], data["succCounts"])
 
 
 @dataclass(frozen=True)
@@ -40,7 +51,7 @@ class InstructionStats:
 
 @dataclass(frozen=True)
 class IRStats:
-    n_blocks: int
+    basic_blocks: BasicBlockStats
     instructions: InstructionStats
 
     @staticmethod
@@ -50,7 +61,7 @@ class IRStats:
             # to generate statistics)
             data: Mapping = json.load(f)
             return IRStats(
-                data["basic-blocks"]["count"],
+                BasicBlockStats.from_json(data["basic-blocks"]),
                 InstructionStats.from_json(data["instructions"]),
             )
 
