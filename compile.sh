@@ -2,31 +2,53 @@
 # === Usage ===
 # Arguments are name of the benchmark to compile into LLVM IR
 
-# Check that required environment variables are defined
-if [[ -z "$DYNAMATIC_PATH" ]]; then
-    echo "Environment variable \"DYNAMATIC_PATH\" is not defined. Abort."
-    exit
-fi
-if [[ -z "$FRONTEND_PATH" ]]; then
-    echo "Environment variable \"FRONTEND_PATH\" is not defined. Abort."
-    exit
-fi
+check_env_variables () {
+    for env_var in "$@"; do
+        local echo_in='echo $env_var' 
+        local echo_out="echo \$$(eval $echo_in)"
+        local env_val=`eval $echo_out`
+        if [[ -z "$env_val" ]]; then
+            echo "Environment variable $env_var is not defined, abort"
+            exit
+        else
+            echo "Found $env_var ($env_val)"
+        fi
+    done
+}
 
-# Convert potential relative path to absolute
-DYNAMATIC_DIR=`realpath "$DYNAMATIC_PATH"`
-FRONTEND_DIR=`realpath "$FRONTEND_PATH"`
-echo "Using local Dynamatic installation at $DYNAMATIC_DIR"
-echo "Using local frontend installation at $FRONTEND_DIR"
+echo "---- Checking for environment variables ----"
+check_env_variables \
+    DYNAMATIC_PATH \
+    POLYBENCH_PATH \
+    FRONTEND_PATH \
+    LLVM_CLANG_BIN \
+    LLVM_OPT_BIN \
+    MLIR_CLANG \
+    MLIR_OPT_BIN \
+    POLYMER_OPT_BIN \
+    DYNAMATIC_SRC \
+    DYNAMATIC_DST \
+    POLYBENCH_SRC \
+    POLYBENCH_DST 
+echo "---- Done! ----"
 echo ""
 
 # Parse arguments
-COMPILE_ALL=0
+USE_DYNAMATIC=0
+USE_POLYBENCH=0
+ALL=0
 FORCE=0
 for arg in "$@"; 
 do
     case "$arg" in 
+        "--use-dynamatic")
+            USE_DYNAMATIC=1
+            ;;
+        "--use-polybench")
+            USE_POLYBENCH=1
+            ;;
         "--all")
-            COMPILE_ALL=1
+            ALL=1
             ;;
         "--force")
             FORCE=1
@@ -36,113 +58,104 @@ do
     esac
 done
 
-# Define some paths
-SCRIPT_DIR=$PWD
-BENCHMARKS_DIR="$SCRIPT_DIR/benchmarks"
-POLYGEIST_DIR="$FRONTEND_DIR/polygeist"
-POLYGEIST_BIN_DIR="$POLYGEIST_DIR/build/bin"
-POLYMER_BIN_DIR="$FRONTEND_DIR/polymer/build/bin"
-LLVM_BIN_DIR="$POLYGEIST_DIR/llvm-project/build/bin"
-DYNAMATIC_ELASTIC_DIR="$DYNAMATIC_DIR/dhls/etc/dynamatic/elastic-circuits/examples"
-DYNAMATIC_REGRESION_DIR="$DYNAMATIC_DIR/dhls/etc/dynamatic/Regression_test/examples"
+if [[ $USE_DYNAMATIC -ne 0 && $USE_POLYBENCH -ne 0 ]]; then
+    echo "Flags --use-dynamatic and --use-polybench are mutually exclusive"
+    exit
+fi
 
-get_bench_local_path () {
-    echo "$BENCHMARKS_DIR/$1"
-}
-
-get_bench_regression_path () {
-    echo "$DYNAMATIC_REGRESION_DIR/$1/src"
-}
+if [[ $USE_DYNAMATIC -eq 0 && $USE_POLYBENCH -eq 0 ]]; then
+    echo "No test suite specified, defaulting to Dynamatic"
+    USE_DYNAMATIC=1
+fi
 
 copy_src () {
-    # === Usage ===
-    # $1 is name of the benchmark 
-    local name="$1"
+    local src_dir=$1
+    local dst_dir=$2
+    local name=$3
+    local c_ext=$4
 
-    # Check whether file already exists in local folder
-    local benchmark_dst="$(get_bench_local_path $name)"
-    if [[ $FORCE -eq 0 && -d "$benchmark_dst" ]]; then
-        echo "  SRC: Folder exists"
+    # Check whether source file already exists in local folder
+    if [[ $FORCE -eq 0 && -f "$dst_dir/$name.c" ]]; then
+        echo "  SRC: Source exists"
         return 0
     fi
+    mkdir -p "$dst_dir"
 
-    echo "  SRC: Copying benchmark from Dynamatic"
-    mkdir -p "$BENCHMARKS_DIR/$name"
-    
-    # Copy benchmark from Dynamatic's regression tests to local benchmark
-    # folder
-    cd "$SCRIPT_DIR" 
-    local benchmark_src="$(get_bench_regression_path $name)"
-    local c_benchmark="$benchmark_dst/$name.c"
-    local h_benchmark="$benchmark_dst/$name.h"
-    cp "$benchmark_src/$name.cpp" "$c_benchmark"
+    # Copy code files (C/CPP + H) from source to destination folder
+    cp "$src_dir/$name.$c_ext" "$dst_dir/$name.c"
     if [ $? -ne 0 ]; then
-        local ret=$? 
-        echo "  SRC: Failed to copy source, abort"
-        return ret
+        echo "  SRC: Failed to copy C/CPP file, abort"
+        return 1
     fi
-    cp "$benchmark_src/$name.h" "$h_benchmark"
+    cp "$src_dir/$name.h" "$dst_dir/$name.h"
     if [ $? -ne 0 ]; then
-        local ret=$? 
-        echo "  SRC: Failed to copy source, abort"
-        return ret
+        echo "  SRC: Failed to copy header file, abort"
+        return 1
     fi
+
+    echo "  SRC: Copy successfull"
     return 0
 }
 
 compile_llvm () {
-    # === Usage ===
-    # $1 is name of the benchmark 
-    # Returns:
-    #   0 if the benchmark was compiled succesfully
-    #   <make's return value> if the benchmark was not compiled succesfully
-    local name=$1
+    local bench_dir=$1
+    local name=$2
 
     # Check whether LLVM folder already exists in local folder
-    local llvm_dir="$(get_bench_local_path $name)/llvm"
-    if [[ $FORCE -eq 0 && -d "$llvm_dir" ]] ; then
+    local llvm_out="$bench_dir/llvm"
+    if [[ $FORCE -eq 0 && -d "$llvm_out" ]] ; then
         echo "  LLVM: Already compiled"
         return 0
     fi
+    mkdir -p "$llvm_out"
 
-    # Go to Dymatic folder with Makefile to compile benchmarks
-    cd "$DYNAMATIC_ELASTIC_DIR"
-
-    # Temporarily copy source files from Regression_test to elastic-circuits
-    local bench_folder="$(get_bench_regression_path $name)"
-    cp "$bench_folder/$name.cpp" "./reg_$name.cpp"
-    cp "$bench_folder/$name.h" "./$name.h"
-
-    # Compile benchmark with Dynamatic
-    make name="reg_$name" graph > /dev/null 2>&1
-
-    # Delete temporarily copied source files
-    rm "reg_$name.cpp"
-    rm "$name.h"
-
-    # Stop if make fails
+    # Compile source to LLVM IR
+	"$LLVM_CLANG_BIN" -Xclang -disable-O0-optnone -emit-llvm -S \
+        -I "$bench_dir" \
+        -c "$bench_dir/$name.c" \
+        -o $llvm_out/step_0.ll
     if [ $? -ne 0 ]; then 
-        MAKE_RET=$?
-        echo "  LLVM: Compile fail"
-        return $MAKE_RET
+        echo "  LLVM: Failed during compilation to LLVM IR, abort"
+        return 1
     fi
-    
-    # Copy output files from Dynamatic folder to local one
+
+    # Apply standard optimizations to LLVM IR
+	"$LLVM_OPT_BIN" -mem2reg \
+        "$llvm_out/step_0.ll" -S -o "$llvm_out/step_1.ll"
+	"$LLVM_OPT_BIN" -loop-rotate -constprop \
+        "$llvm_out/step_1.ll" -S -o "$llvm_out/step_2.ll"
+	"$LLVM_OPT_BIN" -simplifycfg \
+        "$llvm_out/step_2.ll" -S -o "$llvm_out/step_3.ll"
+	"$LLVM_OPT_BIN" -die -instcombine -lowerswitch \
+        "$llvm_out/step_3.ll" -S -o "$llvm_out/step_4.ll"
+    if [ $? -ne 0 ]; then 
+        echo "  LLVM: Failed during standard optimization, abort"
+        return 1
+    fi
+
+    # # Apply custom optimizations
+	# local passes_dir="$DYNAMATIC_PATH/dhls/etc/dynamatic/elastic-circuits/_build/"
+    # "$LLVM_OPT_BIN" \
+    #     -load "$passes_dir/MemElemInfo/libLLVMMemElemInfo.so" \
+    #     -load "$passes_dir/ElasticPass/libElasticPass.so" \
+    #     -load "$passes_dir/OptimizeBitwidth/libLLVMOptimizeBitWidth.so" \
+    #     -load "$passes_dir/MyCFGPass/libMyCFGPass.so" \
+    #     -polly-process-unprofitable -mycfgpass \
+    #     "$llvm_out/step_4.ll" -S "-cfg-outdir=$llvm_out"
+    # if [ $? -ne 0 ]; then 
+    #     echo "  LLVM: Failed during custom optimization, abort"
+    #     return 1
+    # fi
+
     echo "  LLVM: Compile successfull"
-    mkdir -p "$llvm_dir"
-    cp "_build/reg_$name/reg_${name}_mem2reg_constprop_simplifycfg_die.ll" \
-        "$llvm_dir/final.ll"
-    return 0    
+    return 0
 }
 
 compile_mlir () {
-    # === Usage ===
-    # $1 is name of the benchmark 
-    # Returns:
-    #   0 if the benchmark was compiled succesfully
-    #   1 if the benchmark was not compiled succesfully
-    local name=$1
-
+    local bench_dir=$1
+    local name=$2
+    local add_include_path=$3
+    
     local mlir_dir="$(get_bench_local_path $name)/mlir"
     if [[ $FORCE -eq 0 && -d "$mlir_dir" ]]; then
         echo "  MLIR: Already compiled"
@@ -169,7 +182,8 @@ compile_mlir () {
     local f_std="$mlir_dir/std.mlir"
 
     # Include path
-    local include="$POLYGEIST_DIR/llvm-project/clang/lib/Headers/"
+    local include="$POLYGEIST_DIR/llvm-project/clang/lib/Headers/ \
+        $POLYBENCH_DIR/utilities/"
 
     # Passes to convert from scf to std
     local to_std_passes="-convert-scf-to-cf -canonicalize -cse -sccp \
@@ -181,69 +195,134 @@ compile_mlir () {
 
     # Use Polygeist to compile to affine dialect
     "$POLYGEIST_BIN_DIR/mlir-clang" "$f_src" -I "$include" -function=$name -S \
-        -O3 -raise-scf-to-affine > "$f_affine"
+        -O3 -raise-scf-to-affine -memref-fullrank > "$f_affine"
+    if [ $? -ne 0 ]; then 
+        echo "  MLIR: Failed during compilation to affine dialect, abort"
+        return 1
+    fi
 
     # Use Polymer to optimize affine dialect
-    "$POLYMER_BIN_DIR/polymer-opt" "$f_affine" \
-        "-annotate-scop=functions='$name'" -reg2mem -extract-scop-stmt \
-        -pluto-opt -allow-unregistered-dialect > "$f_affine_opt" 2>/dev/null 
+    "$POLYMER_BIN_DIR/polymer-opt" "$f_affine" -reg2mem -extract-scop-stmt \
+        -pluto-opt -allow-unregistered-dialect > "$f_affine_opt" #2>/dev/null 
+    if [ $? -ne 0 ]; then 
+        echo "  MLIR: Failed during affine optimization, abort"
+        return 1
+    fi
 
-    # Lower scf to standard
+    # Lower optimized affine to standard
     "$LLVM_BIN_DIR/mlir-opt" "$f_affine_opt" -lower-affine -inline \
         $to_std_passes > "$f_std_opt"
+    if [ $? -ne 0 ]; then 
+        echo "  MLIR: Failed during lowering to standard dialect from \
+            optimized code, abort"
+        return 1
+    fi
 
     #### Compile WITHOUT polyhedral optimization
     # f_src -> f_scf -> f_std
 
     # Use Polygeist to compile to scf dialect 
     "$POLYGEIST_BIN_DIR/mlir-clang" "$f_src" -I "$include" -function=$name -S \
-        -O3 > "$f_scf"
+        -O3 -memref-fullrank > "$f_scf"
+    if [ $? -ne 0 ]; then 
+        echo "  MLIR: Failed during lowering compilation to scf dialect, abort"
+        return 1
+    fi
+
 
     # Lower scf to standard
     "$LLVM_BIN_DIR/mlir-opt" "$f_scf" -lower-affine $to_std_passes > "$f_std"
+    if [ $? -ne 0 ]; then 
+        echo "  MLIR: Failed during lowering to standard dialect, abort"
+        return 1
+    fi
 
     echo "  MLIR: Compile successfull"
     return 0
 }
 
-process_benchmark () {
-    # === Usage ===
-    # $1 is name of the benchmark 
-    #   0 if the benchmark was copied succesfully
-    #   1 if the benchmark was not copied succesfully
+process_benchmark_dynamatic () {
     local name=$1
 
+    echo "Processing $name"
+
     # Copy benchmark from dynamatic folder to local folder
-    copy_src "$name"
+    copy_src "$DYNAMATIC_SRC/$name/src" "$DYNAMATIC_DST/$name" "$name" "cpp"
     if [ $? -ne 0 ]; then 
         return 1
     fi
 
     # Compile with LLVM
-    compile_llvm "$name"
+    compile_llvm "$DYNAMATIC_DST/$name" "$name"
 
     # Compile with MLIR
-    compile_mlir "$name"
+    # compile_mlir "$name"
     return 0
 }
 
-# Source environment variables for Dynamatic
-cd "$DYNAMATIC_DIR"
-source .env
+
+process_benchmark_polybench () {
+    local bench_subpath=$1
+    
+    local src_dir="$(dirname $bench_subpath)"
+    local name="$(basename $bench_subpath .c)"
+
+    echo "Processing $name"
+
+    # Copy benchmark from Polybench folder to local folder
+    copy_src "$POLYBENCH_SRC/$src_dir" "$POLYBENCH_DST/$name" "$name" "c" 
+    if [ $? -ne 0 ]; then 
+        return 1
+    fi
+
+    # Also copy polybench.h to the benchmark directory
+    cp "$POLYBENCH_SRC/utilities/polybench.h" "$POLYBENCH_DST/$name"
+    if [ $? -ne 0 ]; then
+        echo "  SRC: Failed to copy polybench.h, abort"
+        return 1
+    fi
+
+    # Compile with LLVM
+    local add_include="-I $POLYBENCH_PATH/utilities/"
+    compile_llvm "$POLYBENCH_DST/$name" "$name"
+
+    # Compile with MLIR
+    # compile_mlir "$name"
+    return 0
+}
 
 # Process benchmarks
-if [ $COMPILE_ALL -eq 1 ]; then
-    for name in $DYNAMATIC_REGRESION_DIR/*/; do
-        bname="$(basename $name)"
-        echo "Processing $bname"
-        process_benchmark "$bname"
-    done
-else
-    for name in "$@"; do
-        if [[ $name != --* ]]; then
-            echo "Processing $name"
-            process_benchmark "$name"
-        fi
-    done
+if [ $USE_DYNAMATIC -eq 1 ]; then
+    if [ $ALL -eq 1 ]; then
+        for name in $DYNAMATIC_SRC/*/; do
+            bname="$(basename $name)"
+            process_benchmark_dynamatic "$bname"
+            echo ""
+        done
+    else
+        for name in "$@"; do
+            if [[ $name != --* ]]; then
+                process_benchmark_dynamatic "$name"
+                echo ""
+            fi
+        done
+    fi
+fi    
+    
+if [ $USE_POLYBENCH -eq 1 ]; then
+    if [ $ALL -eq 1 ]; then
+        for name in `cat "$POLYBENCH_PATH/utilities/benchmark_list"`; do
+            process_benchmark_polybench "$name"
+            echo ""
+        done
+    else
+        for name in "$@"; do
+            if [[ $name != --* ]]; then
+                process_benchmark_polybench "$name"
+                echo ""
+            fi
+        done
+    fi
 fi
+
 echo "Done!"
