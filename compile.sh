@@ -23,7 +23,7 @@ check_env_variables \
     FRONTEND_PATH \
     LLVM_CLANG_BIN \
     LLVM_OPT_BIN \
-    MLIR_CLANG \
+    MLIR_CLANG_BIN \
     MLIR_OPT_BIN \
     POLYMER_OPT_BIN \
     DYNAMATIC_SRC \
@@ -154,36 +154,36 @@ compile_llvm () {
 compile_mlir () {
     local bench_dir=$1
     local name=$2
-    local add_include_path=$3
-    
-    local mlir_dir="$(get_bench_local_path $name)/mlir"
-    if [[ $FORCE -eq 0 && -d "$mlir_dir" ]]; then
+    local function_name=$3
+
+    # Check whether MLIR folder already exists in local folder
+    local mlir_out="$bench_dir/mlir"
+    if [[ $FORCE -eq 0 && -d "$mlir_out" ]] ; then
         echo "  MLIR: Already compiled"
         return 0
     fi
-    mkdir -p "$mlir_dir"
+    mkdir -p "$mlir_out"
 
     # C source file
-    local f_src="$(get_bench_local_path $name)/$name.c"
+    local f_src="$bench_dir/$name.c"
 
     # affine dialect
-    local f_affine="$mlir_dir/affine.mlir"
+    local f_affine="$mlir_out/affine.mlir"
 
     # affine dialect optimized
-    local f_affine_opt="$mlir_dir/affine_opt.mlir"
+    local f_affine_opt="$mlir_out/affine_opt.mlir"
 
     # std dialect optimized
-    local f_std_opt="$mlir_dir/std_opt.mlir"
+    local f_std_opt="$mlir_out/std_opt.mlir"
 
     # scf dialect
-    local f_scf="$mlir_dir/scf.mlir"
+    local f_scf="$mlir_out/scf.mlir"
 
     # std dialect (non-optimized)
-    local f_std="$mlir_dir/std.mlir"
+    local f_std="$mlir_out/std.mlir"
 
     # Include path
-    local include="$POLYGEIST_DIR/llvm-project/clang/lib/Headers/ \
-        $POLYBENCH_DIR/utilities/"
+    local include="$FRONTEND_PATH/polygeist/llvm-project/clang/lib/Headers/"
 
     # Passes to convert from scf to std
     local to_std_passes="-convert-scf-to-cf -canonicalize -cse -sccp \
@@ -194,23 +194,24 @@ compile_mlir () {
     # f_src -> f_affine -> f_affine_opt -> f_std_opt
 
     # Use Polygeist to compile to affine dialect
-    "$POLYGEIST_BIN_DIR/mlir-clang" "$f_src" -I "$include" -function=$name -S \
-        -O3 -raise-scf-to-affine -memref-fullrank > "$f_affine"
+    "$MLIR_CLANG_BIN" "$f_src" -I "$bench_dir" -I "$include" \
+        "-function=$function_name" -S -O3 -raise-scf-to-affine \
+        -memref-fullrank > "$f_affine"
     if [ $? -ne 0 ]; then 
         echo "  MLIR: Failed during compilation to affine dialect, abort"
         return 1
     fi
 
     # Use Polymer to optimize affine dialect
-    "$POLYMER_BIN_DIR/polymer-opt" "$f_affine" -reg2mem -extract-scop-stmt \
-        -pluto-opt -allow-unregistered-dialect > "$f_affine_opt" #2>/dev/null 
+    "$POLYMER_OPT_BIN" "$f_affine" -reg2mem -extract-scop-stmt \
+        -pluto-opt -allow-unregistered-dialect > "$f_affine_opt" 2>/dev/null 
     if [ $? -ne 0 ]; then 
         echo "  MLIR: Failed during affine optimization, abort"
         return 1
     fi
 
     # Lower optimized affine to standard
-    "$LLVM_BIN_DIR/mlir-opt" "$f_affine_opt" -lower-affine -inline \
+    "$MLIR_OPT_BIN" "$f_affine_opt" -lower-affine -inline \
         $to_std_passes > "$f_std_opt"
     if [ $? -ne 0 ]; then 
         echo "  MLIR: Failed during lowering to standard dialect from \
@@ -222,7 +223,7 @@ compile_mlir () {
     # f_src -> f_scf -> f_std
 
     # Use Polygeist to compile to scf dialect 
-    "$POLYGEIST_BIN_DIR/mlir-clang" "$f_src" -I "$include" -function=$name -S \
+    "$MLIR_CLANG_BIN" "$f_src" -I "$include" "-function=$function_name" -S \
         -O3 -memref-fullrank > "$f_scf"
     if [ $? -ne 0 ]; then 
         echo "  MLIR: Failed during lowering compilation to scf dialect, abort"
@@ -231,7 +232,7 @@ compile_mlir () {
 
 
     # Lower scf to standard
-    "$LLVM_BIN_DIR/mlir-opt" "$f_scf" -lower-affine $to_std_passes > "$f_std"
+    "$MLIR_OPT_BIN" "$f_scf" -lower-affine $to_std_passes > "$f_std"
     if [ $? -ne 0 ]; then 
         echo "  MLIR: Failed during lowering to standard dialect, abort"
         return 1
@@ -256,7 +257,7 @@ process_benchmark_dynamatic () {
     compile_llvm "$DYNAMATIC_DST/$name" "$name"
 
     # Compile with MLIR
-    # compile_mlir "$name"
+    compile_mlir "$DYNAMATIC_DST/$name" "$name" "$name"
     return 0
 }
 
@@ -281,13 +282,19 @@ process_benchmark_polybench () {
         echo "  SRC: Failed to copy polybench.h, abort"
         return 1
     fi
+    
+    # Replace #include <polybench.h> by #include <polybench.h> in source 
+    sed -i 's/<polybench.h>/"polybench.h"/g' "$POLYBENCH_DST/$name/$name.c" 
+
+    # Make functions non-static so that they aren't inlined by MLIR
+    sed -i 's/^static//g' "$POLYBENCH_DST/$name/$name.c" 
 
     # Compile with LLVM
     local add_include="-I $POLYBENCH_PATH/utilities/"
     compile_llvm "$POLYBENCH_DST/$name" "$name"
 
     # Compile with MLIR
-    # compile_mlir "$name"
+    compile_mlir "$POLYBENCH_DST/$name" "$name" "kernel_$name"
     return 0
 }
 
