@@ -1,6 +1,4 @@
 #!/bin/bash
-# === Usage ===
-# Arguments are name of the benchmark to compile into LLVM IR
 
 check_env_variables () {
     for env_var in "$@"; do
@@ -99,7 +97,7 @@ copy_src () {
 
 compile_llvm () {
     local bench_dir=$1
-    local name=$2
+    local name="$(basename $bench_dir)"
 
     # Check whether LLVM folder already exists in local folder
     local llvm_out="$bench_dir/llvm"
@@ -153,8 +151,8 @@ compile_llvm () {
 
 compile_mlir () {
     local bench_dir=$1
-    local name=$2
-    local function_name=$3
+    local function_name=$2
+    local name="$(basename $bench_dir)"
 
     # Check whether MLIR folder already exists in local folder
     local mlir_out="$bench_dir/mlir"
@@ -254,10 +252,10 @@ process_benchmark_dynamatic () {
     fi
 
     # Compile with LLVM
-    compile_llvm "$DYNAMATIC_DST/$name" "$name"
+    compile_llvm "$DYNAMATIC_DST/$name"
 
     # Compile with MLIR
-    compile_mlir "$DYNAMATIC_DST/$name" "$name" "$name"
+    compile_mlir "$DYNAMATIC_DST/$name" "$name"
     return 0
 }
 
@@ -291,10 +289,10 @@ process_benchmark_polybench () {
 
     # Compile with LLVM
     local add_include="-I $POLYBENCH_PATH/utilities/"
-    compile_llvm "$POLYBENCH_DST/$name" "$name"
+    compile_llvm "$POLYBENCH_DST/$name"
 
     # Compile with MLIR
-    compile_mlir "$POLYBENCH_DST/$name" "$name" "kernel_$name"
+    compile_mlir "$POLYBENCH_DST/$name" "kernel_$name"
     return 0
 }
 
