@@ -188,6 +188,25 @@ compile_mlir () {
         -symbol-dce -control-flow-sink -loop-invariant-code-motion \
         -canonicalize"
 
+    #### Compile WITHOUT polyhedral optimization
+    # f_src -> f_scf -> f_std
+
+    # Use Polygeist to compile to scf dialect 
+    "$MLIR_CLANG_BIN" "$f_src" -I "$include" "-function=$function_name" -S \
+        -O3 -memref-fullrank > "$f_scf"
+    if [ $? -ne 0 ]; then 
+        echo "  MLIR: Failed during lowering compilation to scf dialect, abort"
+        return 1
+    fi
+
+
+    # Lower scf to standard
+    "$MLIR_OPT_BIN" "$f_scf" -lower-affine $to_std_passes > "$f_std"
+    if [ $? -ne 0 ]; then 
+        echo "  MLIR: Failed during lowering to standard dialect, abort"
+        return 1
+    fi
+
     #### Compile WITH polyhedral optimization
     # f_src -> f_affine -> f_affine_opt -> f_std_opt
 
@@ -214,25 +233,6 @@ compile_mlir () {
     if [ $? -ne 0 ]; then 
         echo "  MLIR: Failed during lowering to standard dialect from \
             optimized code, abort"
-        return 1
-    fi
-
-    #### Compile WITHOUT polyhedral optimization
-    # f_src -> f_scf -> f_std
-
-    # Use Polygeist to compile to scf dialect 
-    "$MLIR_CLANG_BIN" "$f_src" -I "$include" "-function=$function_name" -S \
-        -O3 -memref-fullrank > "$f_scf"
-    if [ $? -ne 0 ]; then 
-        echo "  MLIR: Failed during lowering compilation to scf dialect, abort"
-        return 1
-    fi
-
-
-    # Lower scf to standard
-    "$MLIR_OPT_BIN" "$f_scf" -lower-affine $to_std_passes > "$f_std"
-    if [ $? -ne 0 ]; then 
-        echo "  MLIR: Failed during lowering to standard dialect, abort"
         return 1
     fi
 

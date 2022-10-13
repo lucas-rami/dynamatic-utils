@@ -10,5 +10,7 @@ void MLIRStatsPass::runOnOperation() {
   // Get the current operation being operated on.
   FuncOp op = getOperation();
   MLIRStatsAnalysis &analysis = getAnalysis<MLIRStatsAnalysis>();
-  analysis.runAnalysis(op);
+  if (!analysis.runAnalysis(op)) {
+    return signalPassFailure();
+  }
 }

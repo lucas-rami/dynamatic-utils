@@ -83,7 +83,7 @@ analyze_mlir () {
     echo "  MLIR:  Analysis (non-optimized) succeeded"
 
     # Analyze optimized code
-    "$opt" "$mlir" --ir-stats > /dev/null 2> "$mlir_dir/stats_opt.json"
+    "$opt" "$mlir_opt" --ir-stats > /dev/null 2> "$mlir_dir/stats_opt.json"
     if [ $? -ne 0 ]; then 
         echo "  MLIR:  Analysis (optimized) failed"
         return 1

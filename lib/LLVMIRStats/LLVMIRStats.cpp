@@ -7,6 +7,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include <iostream>
 #include <unordered_map>
+
 using namespace llvm;
 using namespace std;
 
@@ -61,7 +62,7 @@ Optional<InstructionStats> LLVMIRStats::analyzeInstructions(Function &f) {
         "sdiv", "urem", "shl"}},
       {LOGICAL_OP, {"and", "or", "xor", "select", "ashr"}},
       {CONTROL_OP, {"br", "ret"}},
-      {CAST_OP, {"sext", "zext", "trunc", "sitofp"}},
+      {CAST_OP, {"sext", "zext", "trunc", "sitofp", "bitcast"}},
   };
   set<string> unknownInstr{"phi", "getelementptr"};
   unordered_map<string, int> instrTypeToCount{};
@@ -89,7 +90,7 @@ Optional<InstructionStats> LLVMIRStats::analyzeInstructions(Function &f) {
 
     // Stop on unknown instruction
     if (!foundType && unknownInstr.find(instrOpcode) == unknownInstr.end()) {
-      cout << "Unknown instruction: " << instrOpcode << endl;
+      cerr << "Unknown instruction: " << instrOpcode << endl;
       return {};
     }
   }

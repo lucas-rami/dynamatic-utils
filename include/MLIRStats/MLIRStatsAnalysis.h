@@ -11,7 +11,7 @@ struct MLIRStatsAnalysis {
 
   MLIRStatsAnalysis(Operation *op);
 
-  void runAnalysis(FuncOp op);
+  bool runAnalysis(FuncOp op);
 
 private:
   BasicBlockStats analyzeBasicBlocks(FuncOp op);
