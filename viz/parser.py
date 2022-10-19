@@ -2,9 +2,13 @@ import os
 import json
 from dataclasses import dataclass
 
-from typing import ClassVar, Set, Mapping, Final, Dict, Sequence
+from typing import ClassVar, Set, Mapping, Dict, Sequence
 
 Stats = Mapping[str, "BenchStats"]
+
+
+class ParsingError(Exception):
+    pass
 
 
 @dataclass(frozen=True)
@@ -16,6 +20,10 @@ class BasicBlockStats:
     @staticmethod
     def from_json(data: Mapping) -> "BasicBlockStats":
         return BasicBlockStats(data["count"], data["predCounts"], data["succCounts"])
+
+    @staticmethod
+    def empty() -> "BasicBlockStats":
+        return BasicBlockStats(0, [], [])
 
 
 @dataclass(frozen=True)
@@ -48,11 +56,16 @@ class InstructionStats:
             counts_per_type,
         )
 
+    @staticmethod
+    def empty() -> "InstructionStats":
+        return InstructionStats(0, {ty: 0 for ty in InstructionStats.all_instr_types})
+
 
 @dataclass(frozen=True)
 class IRStats:
     basic_blocks: BasicBlockStats
     instructions: InstructionStats
+    is_empty: bool
 
     @staticmethod
     def from_file(fp: str) -> "IRStats":
@@ -63,7 +76,12 @@ class IRStats:
             return IRStats(
                 BasicBlockStats.from_json(data["basic-blocks"]),
                 InstructionStats.from_json(data["instructions"]),
+                False,
             )
+
+    @staticmethod
+    def empty() -> "IRStats":
+        return IRStats(BasicBlockStats.empty(), InstructionStats.empty(), True)
 
 
 @dataclass(frozen=True)
@@ -73,16 +91,26 @@ class BenchStats:
     mlir_opt: IRStats
 
     @staticmethod
-    def from_file(bench: str) -> "BenchStats":
-        llvm = IRStats.from_file(_path_llvm(bench))
-        mlir = IRStats.from_file(_path_mlir(bench))
-        # TODO re-enable once we figure out polyhedral stuff
-        # mlir_opt = IRStats.from_file(_path_mlir_opt(bench))
-        return BenchStats(llvm, mlir, mlir)
+    def from_file(path: str, allow_empty: bool = True) -> "BenchStats":
+        def parse_ir(ir_path: str, name: str) -> IRStats:
+            ir = IRStats.empty()
+            try:
+                ir = IRStats.from_file(ir_path)
+            except Exception as e:
+                if not allow_empty:
+                    raise ParsingError(f"[{name}] {e}")
+            return ir
+
+        llvm = parse_ir(_path_llvm(path), "LLVM")
+        mlir = parse_ir(_path_mlir(path), "MLIR")
+        mlir_opt = parse_ir(_path_mlir_opt(path), "MLIR opt")
+        return BenchStats(llvm, mlir, mlir_opt)
 
 
-def parse() -> Stats:
-    benchmarks = sorted(os.listdir(_PATH))
+def parse(path: str) -> Stats:
+    print(f"---- Parsing test suite at {path} ----")
+
+    benchmarks = sorted(os.listdir(path))
     print(f"Detected {len(benchmarks)} benchmarks")
 
     print(f"Parsing statistics")
@@ -90,23 +118,26 @@ def parse() -> Stats:
     stats: Dict[str, BenchStats] = {}
     for bench in benchmarks:
         try:
-            stats[bench] = BenchStats.from_file(bench)
-        except:
+            stats[bench] = BenchStats.from_file(os.path.join(path, bench))
+        except ParsingError as e:
+            print(f"Failed to parse benchmark: {bench}\n\t-> {e}")
             n_fail += 1
     print(f"\t{n_fail}/{len(benchmarks)} benchmarks failed to parse")
+
+    n_opt = sum(1 for s in stats.values() if not s.mlir_opt.is_empty)
+    print(f"{n_opt}/{len(stats)} benchmarks were affine optimized successfully")
+
+    print(f"---- Done parsing ----\n")
     return stats
 
 
-_PATH: Final[str] = os.path.join("benchmarks")
+def _path_llvm(path: str) -> str:
+    return os.path.join(path, "llvm", "stats.json")
 
 
-def _path_llvm(name: str) -> str:
-    return os.path.join(_PATH, name, "llvm", "stats.json")
+def _path_mlir(path: str) -> str:
+    return os.path.join(path, "mlir", "stats.json")
 
 
-def _path_mlir(name: str) -> str:
-    return os.path.join(_PATH, name, "mlir", "stats.json")
-
-
-def _path_mlir_opt(name: str) -> str:
-    return os.path.join(_PATH, name, "mlir", "stats_opt.json")
+def _path_mlir_opt(path: str) -> str:
+    return os.path.join(path, "mlir", "stats_opt.json")
