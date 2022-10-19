@@ -188,6 +188,26 @@ compile_mlir () {
         -symbol-dce -control-flow-sink -loop-invariant-code-motion \
         -canonicalize"
 
+    #### Compile entire benchmark WITHOUT polyhedral optimization
+    local f_scf_all="$mlir_out/scf_all.mlir"
+    local f_std_all="$mlir_out/std_all.mlir"
+    
+    # Use Polygeist to compile to scf dialect 
+    "$MLIR_CLANG_BIN" "$f_src" -I "$include" -function=* -S -O3 \
+        -memref-fullrank > "$f_scf_all"
+    if [ $? -ne 0 ]; then 
+        echo "  MLIR: Failed during lowering to scf dialect (all), abort"
+        return 1
+    fi
+
+    # Lower scf to standard
+    "$MLIR_OPT_BIN" "$f_scf_all" -lower-affine $to_std_passes > "$f_std_all"
+    if [ $? -ne 0 ]; then 
+        echo "  MLIR: Failed during lowering to standard dialect (all), abort"
+        return 1
+    fi
+
+
     #### Compile WITHOUT polyhedral optimization
     # f_src -> f_scf -> f_std
 
@@ -195,7 +215,7 @@ compile_mlir () {
     "$MLIR_CLANG_BIN" "$f_src" -I "$include" "-function=$function_name" -S \
         -O3 -memref-fullrank > "$f_scf"
     if [ $? -ne 0 ]; then 
-        echo "  MLIR: Failed during lowering compilation to scf dialect, abort"
+        echo "  MLIR: Failed during lowering to scf dialect, abort"
         return 1
     fi
 
@@ -292,7 +312,8 @@ process_benchmark_polybench () {
     compile_llvm "$POLYBENCH_DST/$name"
 
     # Compile with MLIR
-    compile_mlir "$POLYBENCH_DST/$name" "kernel_$name"
+    local f_name=`echo $name | sed -r 's/\-/_/g'`
+    compile_mlir "$POLYBENCH_DST/$name" "kernel_$f_name"
     return 0
 }
 

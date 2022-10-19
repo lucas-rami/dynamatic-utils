@@ -7,6 +7,7 @@ set(LIBS
   MLIROptLib
   MLIRStatsPass
   MLIRStatsAnalysis
+  MLIRGlobalsPass
 )
 
 add_llvm_executable(mlir-analyze mlir-analyze.cpp)
