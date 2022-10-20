@@ -62,9 +62,26 @@ class InstructionStats:
 
 
 @dataclass(frozen=True)
+class GlobalStats:
+    names: Sequence[str]
+    uses: Mapping[str, Sequence[str]]
+
+    @staticmethod
+    def from_json(data: Mapping) -> "GlobalStats":
+        return GlobalStats(
+            data["names"], {name: uses for name, uses in data["uses"].items()}
+        )
+
+    @staticmethod
+    def empty() -> "GlobalStats":
+        return GlobalStats([], {})
+
+
+@dataclass(frozen=True)
 class IRStats:
     basic_blocks: BasicBlockStats
     instructions: InstructionStats
+    global_vars: GlobalStats
     is_empty: bool
 
     @staticmethod
@@ -76,12 +93,15 @@ class IRStats:
             return IRStats(
                 BasicBlockStats.from_json(data["basic-blocks"]),
                 InstructionStats.from_json(data["instructions"]),
+                GlobalStats.from_json(data["globals"]),
                 False,
             )
 
     @staticmethod
     def empty() -> "IRStats":
-        return IRStats(BasicBlockStats.empty(), InstructionStats.empty(), True)
+        return IRStats(
+            BasicBlockStats.empty(), InstructionStats.empty(), GlobalStats.empty(), True
+        )
 
 
 @dataclass(frozen=True)

@@ -151,7 +151,6 @@ compile_llvm () {
 
 compile_mlir () {
     local bench_dir=$1
-    local function_name=$2
     local name="$(basename $bench_dir)"
 
     # Check whether MLIR folder already exists in local folder
@@ -188,32 +187,12 @@ compile_mlir () {
         -symbol-dce -control-flow-sink -loop-invariant-code-motion \
         -canonicalize"
 
-    #### Compile entire benchmark WITHOUT polyhedral optimization
-    local f_scf_all="$mlir_out/scf_all.mlir"
-    local f_std_all="$mlir_out/std_all.mlir"
-    
-    # Use Polygeist to compile to scf dialect 
-    "$MLIR_CLANG_BIN" "$f_src" -I "$include" -function=* -S -O3 \
-        -memref-fullrank > "$f_scf_all"
-    if [ $? -ne 0 ]; then 
-        echo "  MLIR: Failed during lowering to scf dialect (all), abort"
-        return 1
-    fi
-
-    # Lower scf to standard
-    "$MLIR_OPT_BIN" "$f_scf_all" -lower-affine $to_std_passes > "$f_std_all"
-    if [ $? -ne 0 ]; then 
-        echo "  MLIR: Failed during lowering to standard dialect (all), abort"
-        return 1
-    fi
-
-
     #### Compile WITHOUT polyhedral optimization
     # f_src -> f_scf -> f_std
 
     # Use Polygeist to compile to scf dialect 
-    "$MLIR_CLANG_BIN" "$f_src" -I "$include" "-function=$function_name" -S \
-        -O3 -memref-fullrank > "$f_scf"
+    "$MLIR_CLANG_BIN" "$f_src" -I "$include" -function=* -S -O3 \
+        -memref-fullrank > "$f_scf"
     if [ $? -ne 0 ]; then 
         echo "  MLIR: Failed during lowering to scf dialect, abort"
         return 1
@@ -230,31 +209,30 @@ compile_mlir () {
     #### Compile WITH polyhedral optimization
     # f_src -> f_affine -> f_affine_opt -> f_std_opt
 
-    # Use Polygeist to compile to affine dialect
-    "$MLIR_CLANG_BIN" "$f_src" -I "$bench_dir" -I "$include" \
-        "-function=$function_name" -S -O3 -raise-scf-to-affine \
-        -memref-fullrank > "$f_affine"
-    if [ $? -ne 0 ]; then 
-        echo "  MLIR: Failed during compilation to affine dialect, abort"
-        return 1
-    fi
+    # # Use Polygeist to compile to affine dialect
+    # "$MLIR_CLANG_BIN" "$f_src" -I "$bench_dir" -I "$include" -function=* -S \
+    #     -O3 -raise-scf-to-affine -memref-fullrank > "$f_affine"
+    # if [ $? -ne 0 ]; then 
+    #     echo "  MLIR: Failed during compilation to affine dialect, abort"
+    #     return 1
+    # fi
 
-    # Use Polymer to optimize affine dialect
-    "$POLYMER_OPT_BIN" "$f_affine" -reg2mem -extract-scop-stmt \
-        -pluto-opt -allow-unregistered-dialect > "$f_affine_opt" 2>/dev/null 
-    if [ $? -ne 0 ]; then 
-        echo "  MLIR: Failed during affine optimization, abort"
-        return 1
-    fi
+    # # Use Polymer to optimize affine dialect
+    # "$POLYMER_OPT_BIN" "$f_affine" -reg2mem -extract-scop-stmt \
+    #     -pluto-opt -allow-unregistered-dialect > "$f_affine_opt"
+    # if [ $? -ne 0 ]; then 
+    #     echo "  MLIR: Failed during affine optimization, abort"
+    #     return 1
+    # fi
 
-    # Lower optimized affine to standard
-    "$MLIR_OPT_BIN" "$f_affine_opt" -lower-affine -inline \
-        $to_std_passes > "$f_std_opt"
-    if [ $? -ne 0 ]; then 
-        echo "  MLIR: Failed during lowering to standard dialect from \
-            optimized code, abort"
-        return 1
-    fi
+    # # Lower optimized affine to standard
+    # "$MLIR_OPT_BIN" "$f_affine_opt" -lower-affine -inline \
+    #     $to_std_passes > "$f_std_opt"
+    # if [ $? -ne 0 ]; then 
+    #     echo "  MLIR: Failed during lowering to standard dialect from \
+    #         optimized code, abort"
+    #     return 1
+    # fi
 
     echo "  MLIR: Compile successfull"
     return 0
@@ -275,7 +253,7 @@ process_benchmark_dynamatic () {
     compile_llvm "$DYNAMATIC_DST/$name"
 
     # Compile with MLIR
-    compile_mlir "$DYNAMATIC_DST/$name" "$name"
+    compile_mlir "$DYNAMATIC_DST/$name"
     return 0
 }
 
@@ -312,8 +290,7 @@ process_benchmark_polybench () {
     compile_llvm "$POLYBENCH_DST/$name"
 
     # Compile with MLIR
-    local f_name=`echo $name | sed -r 's/\-/_/g'`
-    compile_mlir "$POLYBENCH_DST/$name" "kernel_$f_name"
+    compile_mlir "$POLYBENCH_DST/$name"
     return 0
 }
 

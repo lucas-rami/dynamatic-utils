@@ -55,11 +55,14 @@ fi
 
 analyze_llvm () {
     local bench_dir=$1
-    local llvm_pass="$PWD/build/lib/LLVMIrStats.so"
+    local kernel_name=$2
+    local llvm_pass="$PWD/build/lib/LLVMStatisticsPass.so"
     local llvm_dir="$bench_dir/llvm"
     local llvm_ir="$llvm_dir/step_4.ll"
-    "$LLVM_ANALYZE_BIN" -load "$llvm_pass" -ir-stats -enable-new-pm=0 \
-        "$llvm_ir" > /dev/null 2> "$llvm_dir/stats.json"
+
+    "$LLVM_ANALYZE_BIN" "$llvm_ir" -enable-new-pm=0 -load "$llvm_pass" \
+        -ir-stats -kernel $kernel_name -filename "$llvm_dir/stats.json" \
+        > /dev/null  
     if [ $? -ne 0 ]; then 
         echo "  LLVM:  Analysis failed"
         return 1
@@ -70,53 +73,66 @@ analyze_llvm () {
 
 analyze_mlir () {
     local bench_dir=$1
+    local kernel_name=$2
     local opt="$PWD/build/bin/mlir-analyze"
     local mlir_dir="$bench_dir/mlir"
     local mlir="$mlir_dir/std.mlir"
     local mlir_opt="$mlir_dir/std_opt.mlir"
-
+    
     # Analyze non-optimized code
-    "$opt" "$mlir" --ir-stats > /dev/null 2> "$mlir_dir/stats.json"
+    "$opt" "$mlir" \
+        --ir-stats="kernel=$kernel_name filename=$mlir_dir/stats.json" \
+        > /dev/null 
     if [ $? -ne 0 ]; then 
         echo "  MLIR:  Analysis (non-optimized) failed"
+    else
+        echo "  MLIR:  Analysis (non-optimized) succeeded"
     fi
-    echo "  MLIR:  Analysis (non-optimized) succeeded"
 
     # Analyze optimized code
-    "$opt" "$mlir_opt" --ir-stats > /dev/null 2> "$mlir_dir/stats_opt.json"
-    if [ $? -ne 0 ]; then 
-        echo "  MLIR:  Analysis (optimized) failed"
-        return 1
-    fi
-    echo "  MLIR:  Analysis (optimized) succeeded"
+    # "$opt" "$mlir_opt" \
+    #     --ir-stats="kernel=$kernel_name filename=$mlir_dir/stats_opt.json" \
+    #     > /dev/null 
+    # if [ $? -ne 0 ]; then 
+    #     echo "  MLIR:  Analysis (optimized) failed"
+    #     return 1
+    # fi
+    # echo "  MLIR:  Analysis (optimized) succeeded"
     return 0
 }
 
 analyze() {
     local bench_dir="$1"
-    local name="$(basename $1)"
-    echo "Analyzing $name"
+    local kernel_name="$2"
+    echo "Analyzing $(basename $1)"
 
     if [ ! -d "$bench_dir" ]; then
         echo "  SRC: Benchmark does not exist"
         return 1
     fi
 
-    analyze_llvm "$bench_dir"
-    analyze_mlir "$bench_dir"
+    analyze_llvm "$bench_dir" $kernel_name
+    analyze_mlir "$bench_dir" $kernel_name
+}
+
+get_kernel_name() {
+    local name=`echo $(basename $1) | sed -r 's/\-/_/g'`
+    echo $name
 }
 
 # Process benchmarks
 if [ $USE_DYNAMATIC -eq 1 ]; then
     if [ $ALL -eq 1 ]; then
         for name in $DYNAMATIC_DST/*/; do
-            analyze "${name%/}"
+            bench_dir="${name%/}"
+            analyze "$bench_dir" $(get_kernel_name $bench_dir)
             echo ""
         done
     else
         for name in "$@"; do
             if [[ $name != --* ]]; then
-                analyze "$DYNAMATIC_DST/$name/"
+                bench_dir="$DYNAMATIC_DST/$name"
+                analyze "$bench_dir" $(get_kernel_name $bench_dir)
                 echo ""
             fi
         done
@@ -126,13 +142,15 @@ fi
 if [ $USE_POLYBENCH -eq 1 ]; then
     if [ $ALL -eq 1 ]; then
         for name in $POLYBENCH_DST/*/; do
-            analyze "${name%/}"
+            bench_dir="${name%/}"
+            analyze "$bench_dir" kernel_$(get_kernel_name $bench_dir)
             echo ""
         done
     else
         for name in "$@"; do
             if [[ $name != --* ]]; then
-                analyze "$POLYBENCH_DST/$name/"
+                bench_dir="$POLYBENCH_DST/$name"
+                analyze "$bench_dir" kernel_$(get_kernel_name $bench_dir)
                 echo ""
             fi
         done
