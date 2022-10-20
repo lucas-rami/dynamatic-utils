@@ -5,9 +5,7 @@ set(LIBS
   ${dialect_libs}
   ${conversion_libs}
   MLIROptLib
-  MLIRStatsPass
-  MLIRStatsAnalysis
-  MLIRGlobalsPass
+  MLIRStatisticsPass
 )
 
 add_llvm_executable(mlir-analyze mlir-analyze.cpp)

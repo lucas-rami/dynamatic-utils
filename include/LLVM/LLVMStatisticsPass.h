@@ -4,9 +4,9 @@
 #include "IRStats.h"
 #include "llvm/Pass.h"
 
-struct LLVMIRStats : public llvm::FunctionPass {
+struct LLVMStatisticsPass : public llvm::FunctionPass {
   static char ID;
-  LLVMIRStats();
+  LLVMStatisticsPass();
   bool runOnFunction(llvm::Function &f) override;
 
 private:

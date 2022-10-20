@@ -1,16 +1,14 @@
+#include <fstream>
+
 #include "IRStats.h"
 
-bool print_stats(const BasicBlockStats &bb,
-                 const llvm::Optional<InstructionStats> &instr) {
-  if (!instr.hasValue()) {
-    return false;
-  }
-  json blocks = bb.to_json();
-  json instructions = instr->to_json();
+void IRStats::dump(const string &filename) {
   json stats = {
-      {"basic-blocks", blocks},
-      {"instructions", instructions},
+      {"basic-blocks", bb.to_json()},
+      {"instructions", instr.to_json()},
+      {"globals", global.to_json()},
   };
-  std::cerr << stats.dump() << std::endl;
-  return true;
+
+  ofstream outputFile{filename};
+  outputFile << stats.dump() << endl;
 }

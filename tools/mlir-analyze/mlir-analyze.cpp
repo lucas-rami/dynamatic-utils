@@ -1,5 +1,4 @@
-#include "MLIRGlobals/MLIRGlobalsPass.h"
-#include "MLIRStats/MLIRStatsPass.h"
+#include "MLIR/MLIRStatisticsPass.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/InitAllDialects.h"
@@ -40,10 +39,7 @@ int main(int argc, char **argv) {
   mlir::registerAffinePasses();
 
   mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {
-    return std::make_unique<MLIRStatsPass>();
-  });
-  mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {
-    return std::make_unique<MLIRGlobalsPass>();
+    return std::make_unique<MLIRStatisticsPass>();
   });
 
   return mlir::failed(

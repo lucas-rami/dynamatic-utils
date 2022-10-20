@@ -1,30 +1,44 @@
-#include "LLVMIRStats/LLVMIRStats.h"
+#include <iostream>
+#include <unordered_map>
+
+#include "LLVM/LLVMStatisticsPass.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
-#include <iostream>
-#include <unordered_map>
 
 using namespace llvm;
 using namespace std;
 
-LLVMIRStats::LLVMIRStats() : FunctionPass(ID) {}
+static cl::opt<string> kernelName{"kernel", cl::desc("Name of compute kernel"),
+                                  cl::value_desc("kernel")};
 
-bool LLVMIRStats::runOnFunction(Function &f) {
-  if (f.getName() == "main") {
-    return false;
+static cl::opt<string> filename{"filename",
+                                cl::desc("Name of file to write results to"),
+                                cl::value_desc("filename")};
+
+LLVMStatisticsPass::LLVMStatisticsPass() : FunctionPass(ID) {}
+
+bool LLVMStatisticsPass::runOnFunction(Function &f) {
+  if (f.getName() != kernelName) {
+    return true;
   }
 
   auto bb = analyzeBasicBlocks(f);
   auto instr = analyzeInstructions(f);
-  print_stats(bb, instr);
+  if (!instr.hasValue()) {
+    return false;
+  }
+
+  IRStats stats{bb, instr.getValue(), GlobalStats{{}, {}}};
+  stats.dump(filename);
   return false;
 }
 
-BasicBlockStats LLVMIRStats::analyzeBasicBlocks(Function &f) {
+BasicBlockStats LLVMStatisticsPass::analyzeBasicBlocks(Function &f) {
   // Count the number of basic blocks
   uint bbCount{0};
   std::vector<uint> predCounts{};
@@ -53,7 +67,8 @@ BasicBlockStats LLVMIRStats::analyzeBasicBlocks(Function &f) {
   return BasicBlockStats{bbCount, predCounts, succCounts};
 }
 
-Optional<InstructionStats> LLVMIRStats::analyzeInstructions(Function &f) {
+Optional<InstructionStats>
+LLVMStatisticsPass::analyzeInstructions(Function &f) {
   // Group instructions by type and count them
   unordered_map<string, set<string>> instrTypeToOpcodes{
       {MEMORY_OP, {"load", "store"}},
@@ -98,6 +113,6 @@ Optional<InstructionStats> LLVMIRStats::analyzeInstructions(Function &f) {
   return InstructionStats{instrCount, instrTypeToCount};
 }
 
-char LLVMIRStats::ID = 0;
-static RegisterPass<LLVMIRStats> X("ir-stats", "Print stats about IR", false,
-                                   false);
+char LLVMStatisticsPass::ID = 0;
+static RegisterPass<LLVMStatisticsPass> X("ir-stats", "Print stats about IR",
+                                          false, false);

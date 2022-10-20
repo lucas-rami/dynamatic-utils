@@ -1,3 +1,2 @@
-add_subdirectory(LLVMIRStats)
-add_subdirectory(MLIRStats)
-add_subdirectory(MLIRGlobals)
+add_subdirectory(LLVM)
+add_subdirectory(MLIR)
