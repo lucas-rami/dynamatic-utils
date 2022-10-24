@@ -77,26 +77,24 @@ copy_src () {
         echo "  SRC: Source exists"
         return 0
     fi
-    mkdir -p "$dst_dir"
+
+    # Check whether source files exist in the remote folder
+    if [[ ! -f "$src_dir/$name.$c_ext" || ! -f "$src_dir/$name.h"  ]]; then
+        echo "  SRC: Can't find benchmark, abort"
+        return 1
+    fi
 
     # Copy code files (C/CPP + H) from source to destination folder
+    mkdir -p "$dst_dir"
     cp "$src_dir/$name.$c_ext" "$dst_dir/$name.c"
-    if [ $? -ne 0 ]; then
-        echo "  SRC: Failed to copy C/CPP file, abort"
-        return 1
-    fi
     cp "$src_dir/$name.h" "$dst_dir/$name.h"
-    if [ $? -ne 0 ]; then
-        echo "  SRC: Failed to copy header file, abort"
-        return 1
-    fi
-
     echo "  SRC: Copy successfull"
     return 0
 }
 
 compile_llvm () {
     local bench_dir=$1
+    local function_name=$2
     local name="$(basename $bench_dir)"
 
     # Check whether LLVM folder already exists in local folder
@@ -131,19 +129,19 @@ compile_llvm () {
         return 1
     fi
 
-    # # Apply custom optimizations
-	# local passes_dir="$DYNAMATIC_PATH/dhls/etc/dynamatic/elastic-circuits/_build/"
-    # "$LLVM_OPT_BIN" \
-    #     -load "$passes_dir/MemElemInfo/libLLVMMemElemInfo.so" \
-    #     -load "$passes_dir/ElasticPass/libElasticPass.so" \
-    #     -load "$passes_dir/OptimizeBitwidth/libLLVMOptimizeBitWidth.so" \
-    #     -load "$passes_dir/MyCFGPass/libMyCFGPass.so" \
-    #     -polly-process-unprofitable -mycfgpass \
-    #     "$llvm_out/step_4.ll" -S "-cfg-outdir=$llvm_out"
-    # if [ $? -ne 0 ]; then 
-    #     echo "  LLVM: Failed during custom optimization, abort"
-    #     return 1
-    # fi
+    # Apply custom optimizations
+	local passes_dir="$DYNAMATIC_PATH/dhls/etc/dynamatic/elastic-circuits/_build/"
+    "$LLVM_OPT_BIN" \
+        -load "$passes_dir/MemElemInfo/libLLVMMemElemInfo.so" \
+        -load "$passes_dir/ElasticPass/libElasticPass.so" \
+        -load "$passes_dir/OptimizeBitwidth/libLLVMOptimizeBitWidth.so" \
+        -load "$passes_dir/MyCFGPass/libMyCFGPass.so" \
+        -polly-process-unprofitable -mycfgpass \
+        "$llvm_out/step_4.ll" -S "-cfg-outdir=$llvm_out" \
+            "-kernel=$function_name" > /dev/null 2>&1
+
+    # Convert to PNG
+    dot -Tpng "$llvm_out/$name.dot" > "$llvm_out/$name.png"
 
     echo "  LLVM: Compile successfull"
     return 0
@@ -151,6 +149,7 @@ compile_llvm () {
 
 compile_mlir () {
     local bench_dir=$1
+    local function_name=$2
     local name="$(basename $bench_dir)"
 
     # Check whether MLIR folder already exists in local folder
@@ -179,6 +178,18 @@ compile_mlir () {
     # std dialect (non-optimized)
     local f_std="$mlir_out/std.mlir"
 
+    # scf dialect
+    local f_scf_fun="$mlir_out/scf_fun.mlir"
+
+    # std dialect (non-optimized)
+    local f_std_fun="$mlir_out/std_fun.mlir"
+
+    # DOT graph
+    local f_dot="$mlir_out/$name.dot"
+
+    # DOT graph
+    local f_png="$mlir_out/$name.png"
+
     # Include path
     local include="$FRONTEND_PATH/polygeist/llvm-project/clang/lib/Headers/"
 
@@ -198,13 +209,40 @@ compile_mlir () {
         return 1
     fi
 
-
     # Lower scf to standard
     "$MLIR_OPT_BIN" "$f_scf" -lower-affine $to_std_passes > "$f_std"
     if [ $? -ne 0 ]; then 
         echo "  MLIR: Failed during lowering to standard dialect, abort"
         return 1
     fi
+
+    #### Compile just the function WITHOUT polyhedral optimization
+    # f_src -> f_scf -> f_std
+
+    # Use Polygeist to compile to scf dialect 
+    "$MLIR_CLANG_BIN" "$f_src" -I "$include" "-function=$function_name" -S -O3 \
+        -memref-fullrank > "$f_scf_fun"
+    if [ $? -ne 0 ]; then 
+        echo "  MLIR: Failed during lowering to scf dialect, abort"
+        return 1
+    fi
+
+    # Lower scf to standard
+    "$MLIR_OPT_BIN" "$f_scf_fun" -lower-affine $to_std_passes > "$f_std_fun"
+    if [ $? -ne 0 ]; then 
+        echo "  MLIR: Failed during lowering to standard dialect, abort"
+        return 1
+    fi
+
+    # Create graph
+    "$MLIR_OPT_BIN" "$f_std_fun" -view-op-graph > /dev/null 2> "$f_dot"
+    if [ $? -ne 0 ]; then 
+        echo "  MLIR: Failed during creation of Graphviz visualization, abort"
+        return 1
+    fi
+
+    # Convert graph to PNG
+    dot -Tpng "$f_dot" > "$f_png"
 
     #### Compile WITH polyhedral optimization
     # f_src -> f_affine -> f_affine_opt -> f_std_opt
@@ -250,10 +288,10 @@ process_benchmark_dynamatic () {
     fi
 
     # Compile with LLVM
-    compile_llvm "$DYNAMATIC_DST/$name"
+    compile_llvm "$DYNAMATIC_DST/$name" "$name"
 
     # Compile with MLIR
-    compile_mlir "$DYNAMATIC_DST/$name"
+    compile_mlir "$DYNAMATIC_DST/$name" "$name"
     return 0
 }
 
@@ -287,10 +325,10 @@ process_benchmark_polybench () {
 
     # Compile with LLVM
     local add_include="-I $POLYBENCH_PATH/utilities/"
-    compile_llvm "$POLYBENCH_DST/$name"
+    compile_llvm "$POLYBENCH_DST/$name" "kernel_$name"
 
     # Compile with MLIR
-    compile_mlir "$POLYBENCH_DST/$name"
+    compile_mlir "$POLYBENCH_DST/$name" "kernel_$name"
     return 0
 }
 
