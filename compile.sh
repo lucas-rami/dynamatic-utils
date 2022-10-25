@@ -22,8 +22,9 @@ check_env_variables \
     LLVM_CLANG_BIN \
     LLVM_OPT_BIN \
     MLIR_CLANG_BIN \
-    MLIR_OPT_BIN \
+    POLYGEIST_OPT_BIN \
     POLYMER_OPT_BIN \
+    MLIR_OPT_BIN \
     DYNAMATIC_SRC \
     DYNAMATIC_DST \
     POLYBENCH_SRC \
@@ -74,13 +75,13 @@ copy_src () {
 
     # Check whether source file already exists in local folder
     if [[ $FORCE -eq 0 && -f "$dst_dir/$name.c" ]]; then
-        echo "  SRC: Source exists"
+        echo "[SRC] Source exists"
         return 0
     fi
 
     # Check whether source files exist in the remote folder
     if [[ ! -f "$src_dir/$name.$c_ext" || ! -f "$src_dir/$name.h"  ]]; then
-        echo "  SRC: Can't find benchmark, abort"
+        echo "[SRC] Failed to find benchmark"
         return 1
     fi
 
@@ -88,7 +89,7 @@ copy_src () {
     mkdir -p "$dst_dir"
     cp "$src_dir/$name.$c_ext" "$dst_dir/$name.c"
     cp "$src_dir/$name.h" "$dst_dir/$name.h"
-    echo "  SRC: Copy successfull"
+    echo "[SRC] Copy successfull"
     return 0
 }
 
@@ -100,7 +101,7 @@ compile_llvm () {
     # Check whether LLVM folder already exists in local folder
     local llvm_out="$bench_dir/llvm"
     if [[ $FORCE -eq 0 && -d "$llvm_out" ]] ; then
-        echo "  LLVM: Already compiled"
+        echo "[LLVM] Already compiled"
         return 0
     fi
     mkdir -p "$llvm_out"
@@ -111,8 +112,10 @@ compile_llvm () {
         -c "$bench_dir/$name.c" \
         -o $llvm_out/step_0.ll
     if [ $? -ne 0 ]; then 
-        echo "  LLVM: Failed during compilation to LLVM IR, abort"
+        echo "[LLVM] Compilation to LLVM IR failed"
         return 1
+    else
+        echo "[LLVM] Compilation to LLVM IR succeeded"
     fi
 
     # Apply standard optimizations to LLVM IR
@@ -125,8 +128,10 @@ compile_llvm () {
 	"$LLVM_OPT_BIN" -die -instcombine -lowerswitch \
         "$llvm_out/step_3.ll" -S -o "$llvm_out/step_4.ll"
     if [ $? -ne 0 ]; then 
-        echo "  LLVM: Failed during standard optimization, abort"
+        echo "[LLVM] Standard optimization failed"
         return 1
+    else
+        echo "[LLVM] Standard optimization succeeded"
     fi
 
     # Apply custom optimizations
@@ -143,7 +148,53 @@ compile_llvm () {
     # Convert to PNG
     dot -Tpng "$llvm_out/$name.dot" > "$llvm_out/$name.png"
 
-    echo "  LLVM: Compile successfull"
+    echo "[LLVM] Compile successfull"
+    return 0
+}
+
+compile_mlir_internal() {
+    local function_name=$1
+    local f_src=$2
+    local f_affine=$3
+    local f_affine_opt=$4
+    local f_std=$5
+
+    # Include path
+    local include="$POLYGEIST_PATH/llvm-project/clang/lib/Headers/"
+
+    # Passes to convert from scf to std
+    local to_std_passes="-convert-scf-to-cf -canonicalize -cse -sccp \
+        -symbol-dce -control-flow-sink -loop-invariant-code-motion \
+        -canonicalize"
+
+    # source code -> affine dialect 
+    "$MLIR_CLANG_BIN" "$f_src" \
+        -I "$include" -function=$function_name -S -O3 -raise-scf-to-affine \
+        -memref-fullrank \
+        > "$f_affine"
+    if [ $? -ne 0 ]; then 
+        echo "[MLIR] source code -> affine dialect failed"
+        return 1
+    fi
+
+    # affine dialect -> optimized affine dialect 
+    "$POLYGEIST_OPT_BIN" "$f_affine" \
+        -mem2reg \
+        > "$f_affine_opt"
+    if [ $? -ne 0 ]; then 
+        echo "[MLIR] affine dialect -> optimized affine dialect failed"
+        return 1
+    fi
+
+    # optimized affine dialect -> standard dialect
+    "$MLIR_OPT_BIN" "$f_affine_opt" \
+        -lower-affine $to_std_passes \
+        > "$f_std"
+    if [ $? -ne 0 ]; then 
+        echo "[MLIR] optimized affine dialect -> standard dialect failed"
+        return 1
+    fi
+
     return 0
 }
 
@@ -155,7 +206,7 @@ compile_mlir () {
     # Check whether MLIR folder already exists in local folder
     local mlir_out="$bench_dir/mlir"
     if [[ $FORCE -eq 0 && -d "$mlir_out" ]] ; then
-        echo "  MLIR: Already compiled"
+        echo "[MLIR] Already compiled"
         return 0
     fi
     mkdir -p "$mlir_out"
@@ -163,86 +214,52 @@ compile_mlir () {
     # C source file
     local f_src="$bench_dir/$name.c"
 
-    # affine dialect
+    # ---- Compile all functions ---- #
+
+    # Files
     local f_affine="$mlir_out/affine.mlir"
-
-    # affine dialect optimized
     local f_affine_opt="$mlir_out/affine_opt.mlir"
-
-    # std dialect optimized
-    local f_std_opt="$mlir_out/std_opt.mlir"
-
-    # scf dialect
-    local f_scf="$mlir_out/scf.mlir"
-
-    # std dialect (non-optimized)
     local f_std="$mlir_out/std.mlir"
 
-    # scf dialect
-    local f_scf_fun="$mlir_out/scf_fun.mlir"
+    # Compile
+    compile_mlir_internal "*" "$f_src" "$f_affine" "$f_affine_opt" "$f_std"
+    if [ $? -ne 0 ]; then 
+        echo "[MLIR] Compilation of all functions failed" 
+    else 
+        echo "[MLIR] Compilation of all functions succeeded" 
+    fi
 
-    # std dialect (non-optimized)
+    # ---- Compile kernel function only ---- #
+
+    # Files
+    local f_affine_fun="$mlir_out/affine_fun.mlir"
+    local f_affine_opt_fun="$mlir_out/affine_opt_fun.mlir"
     local f_std_fun="$mlir_out/std_fun.mlir"
-
-    # DOT graph
     local f_dot="$mlir_out/$name.dot"
-
-    # DOT graph
     local f_png="$mlir_out/$name.png"
 
-    # Include path
-    local include="$FRONTEND_PATH/polygeist/llvm-project/clang/lib/Headers/"
-
-    # Passes to convert from scf to std
-    local to_std_passes="-convert-scf-to-cf -canonicalize -cse -sccp \
-        -symbol-dce -control-flow-sink -loop-invariant-code-motion \
-        -canonicalize"
-
-    #### Compile WITHOUT polyhedral optimization
-    # f_src -> f_scf -> f_std
-
-    # Use Polygeist to compile to scf dialect 
-    "$MLIR_CLANG_BIN" "$f_src" -I "$include" -function=* -S -O3 \
-        -memref-fullrank > "$f_scf"
+    # Compile
+    compile_mlir_internal "$function_name" "$f_src" "$f_affine_fun" \
+        "$f_affine_opt_fun" "$f_std_fun"
     if [ $? -ne 0 ]; then 
-        echo "  MLIR: Failed during lowering to scf dialect, abort"
+        echo "[MLIR] Compilation of kernel function only failed" 
         return 1
+    else 
+        echo "[MLIR] Compilation of kernel function only succeeded" 
     fi
 
-    # Lower scf to standard
-    "$MLIR_OPT_BIN" "$f_scf" -lower-affine $to_std_passes > "$f_std"
-    if [ $? -ne 0 ]; then 
-        echo "  MLIR: Failed during lowering to standard dialect, abort"
-        return 1
-    fi
-
-    #### Compile just the function WITHOUT polyhedral optimization
-    # f_src -> f_scf -> f_std
-
-    # Use Polygeist to compile to scf dialect 
-    "$MLIR_CLANG_BIN" "$f_src" -I "$include" "-function=$function_name" -S -O3 \
-        -memref-fullrank > "$f_scf_fun"
-    if [ $? -ne 0 ]; then 
-        echo "  MLIR: Failed during lowering to scf dialect, abort"
-        return 1
-    fi
-
-    # Lower scf to standard
-    "$MLIR_OPT_BIN" "$f_scf_fun" -lower-affine $to_std_passes > "$f_std_fun"
-    if [ $? -ne 0 ]; then 
-        echo "  MLIR: Failed during lowering to standard dialect, abort"
-        return 1
-    fi
-
-    # Create graph
+    # Create DOT graph
     "$MLIR_OPT_BIN" "$f_std_fun" -view-op-graph > /dev/null 2> "$f_dot"
     if [ $? -ne 0 ]; then 
-        echo "  MLIR: Failed during creation of Graphviz visualization, abort"
+        echo "[MLIR] Creation of Graphviz visualization failed"
         return 1
+    else
+        # Convert DOT graph to PNG
+        dot -Tpng "$f_dot" > "$f_png"
+        echo "[MLIR] Creation of Graphviz visualization succeeded"
     fi
 
-    # Convert graph to PNG
-    dot -Tpng "$f_dot" > "$f_png"
+    return 0
 
     #### Compile WITH polyhedral optimization
     # f_src -> f_affine -> f_affine_opt -> f_std_opt
@@ -271,15 +288,12 @@ compile_mlir () {
     #         optimized code, abort"
     #     return 1
     # fi
-
-    echo "  MLIR: Compile successfull"
-    return 0
 }
 
 process_benchmark_dynamatic () {
     local name=$1
 
-    echo "Processing $name"
+    echo "---- Compiling $name ----"
 
     # Copy benchmark from dynamatic folder to local folder
     copy_src "$DYNAMATIC_SRC/$name/src" "$DYNAMATIC_DST/$name" "$name" "cpp"
@@ -292,6 +306,9 @@ process_benchmark_dynamatic () {
 
     # Compile with MLIR
     compile_mlir "$DYNAMATIC_DST/$name" "$name"
+    
+    echo "---- Done! ----"
+    echo ""
     return 0
 }
 
@@ -302,8 +319,7 @@ process_benchmark_polybench () {
     local src_dir="$(dirname $bench_subpath)"
     local name="$(basename $bench_subpath .c)"
 
-    echo "Processing $name"
-
+    echo "---- Compiling $name ----"
     # Copy benchmark from Polybench folder to local folder
     copy_src "$POLYBENCH_SRC/$src_dir" "$POLYBENCH_DST/$name" "$name" "c" 
     if [ $? -ne 0 ]; then 
@@ -313,7 +329,7 @@ process_benchmark_polybench () {
     # Also copy polybench.h to the benchmark directory
     cp "$POLYBENCH_SRC/utilities/polybench.h" "$POLYBENCH_DST/$name"
     if [ $? -ne 0 ]; then
-        echo "  SRC: Failed to copy polybench.h, abort"
+        echo "[SRC] Failed to copy polybench.h"
         return 1
     fi
     
@@ -324,11 +340,13 @@ process_benchmark_polybench () {
     sed -i 's/^static//g' "$POLYBENCH_DST/$name/$name.c" 
 
     # Compile with LLVM
-    local add_include="-I $POLYBENCH_PATH/utilities/"
     compile_llvm "$POLYBENCH_DST/$name" "kernel_$name"
 
     # Compile with MLIR
     compile_mlir "$POLYBENCH_DST/$name" "kernel_$name"
+    
+    echo "---- Done! ----"
+    echo ""
     return 0
 }
 
@@ -366,4 +384,5 @@ if [ $USE_POLYBENCH -eq 1 ]; then
     fi
 fi
 
-echo "Done!"
+echo "---- All done! ----"
+echo ""
