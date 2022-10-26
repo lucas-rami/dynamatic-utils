@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.13.4)
 project(DynamaticTools)
+set(CMAKE_BUILD_TYPE Release)
 
 # CMP0116: Ninja generators transform `DEPFILE`s from `add_custom_command()`
 # New in CMake 3.20. https://cmake.org/cmake/help/latest/policy/CMP0116.html
@@ -14,6 +15,8 @@ endif()
 set(CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 message(STATUS "CXX standard is ${CXX_STANDARD}")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} --std=c++20")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} --std=c++20")
 
 # Find LLVM and MLIR
 find_package(LLVM REQUIRED CONFIG)

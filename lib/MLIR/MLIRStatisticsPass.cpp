@@ -6,9 +6,10 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 
 using namespace std;
+using namespace func;
 using namespace mlir;
 
-static BasicBlockStats analyzeBasicBlocks(FuncOp op) {
+static BasicBlockStats analyzeBasicBlocks(func::FuncOp op) {
   std::vector<uint> predCounts{};
   std::vector<uint> succCounts{};
 
@@ -101,9 +102,9 @@ static GlobalStats analyzeGlobals(FuncOp op,
   // Look for uses of any global variable in function body
   for (auto g : globals) {
     auto symbolTable = g.getSymbolUses(op);
-    if (symbolTable.hasValue()) {
+    if (symbolTable.has_value()) {
       std::vector<string> globalUses{};
-      for (auto const &use : symbolTable.getValue()) {
+      for (auto const &use : symbolTable.value()) {
         globalUses.push_back(use.getUser()->getName().getStringRef().str());
       }
       if (globalUses.size() != 0) {
@@ -123,11 +124,11 @@ static bool analyze(FuncOp fun, const std::vector<LLVM::GlobalOp> &globals,
                     const string &filename) {
   auto bb = analyzeBasicBlocks(fun);
   auto instr = analyzeInstrutions(fun);
-  if (!instr.hasValue()) {
+  if (!instr.has_value()) {
     return false;
   }
   auto global = analyzeGlobals(fun, globals);
-  IRStats stats{bb, instr.getValue(), global};
+  IRStats stats{bb, instr.value(), global};
 
   stats.dump(filename);
   return true;

@@ -1,5 +1,3 @@
-set(CMAKE_BUILD_TYPE Release)
-
 llvm_map_components_to_libnames(llvm_libs core)
 message(STATUS "using libraries ${llvm_libs}")
 

@@ -18,7 +18,6 @@ echo "---- Checking for environment variables ----"
 check_env_variables \
     DYNAMATIC_PATH \
     POLYBENCH_PATH \
-    FRONTEND_PATH \
     LLVM_CLANG_BIN \
     LLVM_OPT_BIN \
     MLIR_CLANG_BIN \

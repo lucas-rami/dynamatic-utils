@@ -29,11 +29,11 @@ bool LLVMStatisticsPass::runOnFunction(Function &f) {
 
   auto bb = analyzeBasicBlocks(f);
   auto instr = analyzeInstructions(f);
-  if (!instr.hasValue()) {
+  if (!instr.has_value()) {
     return false;
   }
 
-  IRStats stats{bb, instr.getValue(), GlobalStats{{}, {}}};
+  IRStats stats{bb, instr.value(), GlobalStats{{}, {}}};
   stats.dump(filename);
   return false;
 }
