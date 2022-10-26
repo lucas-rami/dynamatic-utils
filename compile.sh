@@ -94,7 +94,7 @@ copy_src () {
 
 compile_llvm () {
     local bench_dir=$1
-    local function_name=$2
+    local kernel_name=$2
     local name="$(basename $bench_dir)"
 
     # Check whether LLVM folder already exists in local folder
@@ -142,7 +142,7 @@ compile_llvm () {
         -load "$passes_dir/MyCFGPass/libMyCFGPass.so" \
         -polly-process-unprofitable -mycfgpass \
         "$llvm_out/step_4.ll" -S "-cfg-outdir=$llvm_out" \
-            "-kernel=$function_name" > /dev/null 2>&1
+            "-kernel=$kernel_name" > /dev/null 2>&1
 
     # Convert to PNG
     dot -Tpng "$llvm_out/$name.dot" > "$llvm_out/$name.png"
@@ -199,7 +199,7 @@ compile_mlir_internal() {
 
 compile_mlir () {
     local bench_dir=$1
-    local function_name=$2
+    local kernel_name=$2
     local name="$(basename $bench_dir)"
 
     # Check whether MLIR folder already exists in local folder
@@ -238,7 +238,7 @@ compile_mlir () {
     local f_png="$mlir_out/$name.png"
 
     # Compile
-    compile_mlir_internal "$function_name" "$f_src" "$f_affine_fun" \
+    compile_mlir_internal "$kernel_name" "$f_src" "$f_affine_fun" \
         "$f_affine_opt_fun" "$f_std_fun"
     if [ $? -ne 0 ]; then 
         echo "[MLIR] Compilation of kernel function only failed" 
@@ -338,11 +338,14 @@ process_benchmark_polybench () {
     # Make functions non-static so that they aren't inlined by MLIR
     sed -i 's/^static//g' "$POLYBENCH_DST/$name/$name.c" 
 
+    # Replace - with _ in kernel names
+    local kernel_name="kernel_`echo $name | sed -r 's/\-/_/g'`"
+
     # Compile with LLVM
-    compile_llvm "$POLYBENCH_DST/$name" "kernel_$name"
+    compile_llvm "$POLYBENCH_DST/$name" "$kernel_name"
 
     # Compile with MLIR
-    compile_mlir "$POLYBENCH_DST/$name" "kernel_$name"
+    compile_mlir "$POLYBENCH_DST/$name" "$kernel_name"
     
     echo "---- Done! ----"
     echo ""

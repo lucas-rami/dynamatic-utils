@@ -1,13 +1,17 @@
 import os
 import json
 from dataclasses import dataclass
-
+from enum import Enum
 from typing import ClassVar, Set, Mapping, Dict, Sequence
 
 Stats = Mapping[str, "BenchStats"]
 
 
 class ParsingError(Exception):
+    pass
+
+
+class IRError(Exception):
     pass
 
 
@@ -104,6 +108,12 @@ class IRStats:
         )
 
 
+class IRType(Enum):
+    LLVM = "llvm"
+    MLIR = "mlir"
+    MLIR_OPT = "mlir_opt"
+
+
 @dataclass(frozen=True)
 class BenchStats:
     llvm: IRStats
@@ -125,6 +135,13 @@ class BenchStats:
         mlir = parse_ir(_path_mlir(path), "MLIR")
         mlir_opt = parse_ir(_path_mlir_opt(path), "MLIR opt")
         return BenchStats(llvm, mlir, mlir_opt)
+
+    def ir(self, ir_type: IRType) -> IRStats:
+        if (ir := getattr(self, ir_type.value, None)) is not None and isinstance(
+            ir, IRStats
+        ):
+            return ir
+        raise IRError()
 
 
 def parse(path: str) -> Stats:

@@ -5,20 +5,29 @@ from bokeh.models.layouts import Panel, Tabs
 from bokeh.io import show
 
 # Local
-from viz.parser import parse, Stats
+from viz.parser import IRType, parse, Stats
 from viz.figures import *
 
 
-def gen_figures(stats: Stats, paths: Tuple[str, str], nest: int = 0) -> Tabs:
-    if len(stats) == 0:
+def gen_figures(stats: Stats, paths: Tuple[IRType, IRType], nest: int = 0) -> Tabs:
+    # Filter out empty statistics
+    filt_stats: Stats = {
+        name: stats
+        for name, stats in stats.items()
+        if not (stats.ir(paths[0]).is_empty or stats.ir(paths[1]).is_empty)
+    }
+
+    # Don't do anything if there aren't any benchmarks left
+    if len(filt_stats) == 0:
         return Tabs(tabs=[])
 
+    # Generate panels
     blocks = Panel(
         child=Tabs(
             tabs=[
                 Panel(
                     child=compare_scalar_pair(
-                        stats, lambda ir: ir.basic_blocks.counts, paths, nest + 2
+                        filt_stats, lambda ir: ir.basic_blocks.counts, paths, nest + 2
                     ),
                     title="Count",
                 )
@@ -31,7 +40,7 @@ def gen_figures(stats: Stats, paths: Tuple[str, str], nest: int = 0) -> Tabs:
             tabs=[
                 Panel(
                     child=compare_scalar_pair(
-                        stats,
+                        filt_stats,
                         lambda ir: ir.instructions.n_real_instructions,
                         paths,
                         nest + 2,
@@ -39,7 +48,7 @@ def gen_figures(stats: Stats, paths: Tuple[str, str], nest: int = 0) -> Tabs:
                     title="Global count",
                 ),
                 Panel(
-                    child=compare_instruction_types(stats, paths, nest + 2),
+                    child=compare_instruction_types(filt_stats, paths, nest + 2),
                     title="Count per type",
                 ),
             ]
@@ -47,6 +56,7 @@ def gen_figures(stats: Stats, paths: Tuple[str, str], nest: int = 0) -> Tabs:
         title="Instructions",
     )
 
+    # Make tabs with all panels and return
     tabs = Tabs(tabs=[blocks, instructions])
     return tabs
 
@@ -61,16 +71,16 @@ def main() -> None:
             for name, stats in stats_dyn.items()
             if not (stats.llvm.is_empty or stats.mlir.is_empty)
         },
-        ("llvm", "mlir"),
+        (IRType.LLVM, IRType.MLIR),
         1,
     )
     polybench = gen_figures(
         {
             name: stats
             for name, stats in stats_poly.items()
-            if not (stats.mlir.is_empty or stats.mlir_opt.is_empty)
+            if not (stats.llvm.is_empty or stats.mlir.is_empty)
         },
-        ("mlir", "mlir_opt"),
+        (IRType.LLVM, IRType.MLIR),
         1,
     )
 

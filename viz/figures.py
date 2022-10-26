@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from bokeh.io import output_file, save
 from bokeh.models import ColumnDataSource, FactorRange
 from bokeh.plotting import figure
-from bokeh.transform import factor_cmap, dodge
+from bokeh.transform import dodge
 from bokeh.layouts import column, LayoutDOM, row
 from bokeh.colors import RGB
 from bokeh.models.ranges import Range1d
@@ -13,10 +13,10 @@ from bokeh.models.layouts import Panel, Tabs
 from bokeh.plotting.figure import Figure
 
 # Local
-from .parser import BenchStats, Stats, InstructionStats, IRStats
+from .parser import BenchStats, IRType, Stats, InstructionStats, IRStats
 
 # Typing
-from typing import Callable, Dict, Final, List, Sequence, Tuple, Optional, Any
+from typing import Callable, Dict, Final, List, Sequence, Tuple, Optional, Any, Mapping
 
 BokehParams = Optional[Dict[str, Any]]
 
@@ -161,7 +161,7 @@ def boxplot(
 def compare_scalar_pair(
     stats: Stats,
     f_stats: Callable[[IRStats], int],
-    paths: Tuple[str, str],
+    paths: Tuple[IRType, IRType],
     nest: int = 0,
 ) -> LayoutDOM:
 
@@ -484,7 +484,7 @@ def compare_scalar(
 
 
 def compare_instruction_types(
-    stats: Stats, paths: Tuple[str, str], nest: int = 0
+    stats: Stats, paths: Tuple[IRType, IRType], nest: int = 0
 ) -> Tabs:
     panels: List[Panel] = []
     for instr_type in sorted(InstructionStats.all_instr_types):
@@ -533,8 +533,8 @@ class PathInfo:
     stats: Callable[[BenchStats], IRStats]
 
 
-__PATH_INFO = {
-    "llvm": PathInfo(__LLVM, __LLVM_COLOR, lambda b: b.llvm),
-    "mlir": PathInfo(__MLIR, __MLIR_COLOR, lambda b: b.mlir),
-    "mlir_opt": PathInfo(__MLIR_OPT, __MLIR_OPT_COLOR, lambda b: b.mlir_opt),
+__PATH_INFO: Mapping[IRType, PathInfo] = {
+    IRType.LLVM: PathInfo(__LLVM, __LLVM_COLOR, lambda b: b.llvm),
+    IRType.MLIR: PathInfo(__MLIR, __MLIR_COLOR, lambda b: b.mlir),
+    IRType.MLIR_OPT: PathInfo(__MLIR_OPT, __MLIR_OPT_COLOR, lambda b: b.mlir_opt),
 }

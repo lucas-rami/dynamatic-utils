@@ -1,5 +1,3 @@
-set(CMAKE_BUILD_TYPE Release)
-
 add_mlir_library(MLIRStatisticsPass
   MLIRStatisticsPass.cpp
   ../IRStats.cpp
@@ -7,4 +5,3 @@ add_mlir_library(MLIRStatisticsPass
   MLIRIR
   MLIRPass
 )
-target_compile_options(MLIRStatisticsPass PRIVATE --std=c++20)
