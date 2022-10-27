@@ -144,10 +144,14 @@ compile_llvm () {
         "$llvm_out/step_4.ll" -S "-cfg-outdir=$llvm_out" \
             "-kernel=$kernel_name" > /dev/null 2>&1
 
+    if [ ! -f "$llvm_out/$name.dot" ]; then
+        echo "[LLVM] Creation of Graphviz visualization failed"
+        return 1
+    fi
+
     # Convert to PNG
     dot -Tpng "$llvm_out/$name.dot" > "$llvm_out/$name.png"
-
-    echo "[LLVM] Compile successfull"
+    echo "[LLVM] Creation of Graphviz visualization succeeded"
     return 0
 }
 
@@ -379,7 +383,8 @@ if [ $USE_POLYBENCH -eq 1 ]; then
     else
         for name in "$@"; do
             if [[ $name != --* ]]; then
-                process_benchmark_polybench "$name"
+                path=`cat "$POLYBENCH_PATH/utilities/benchmark_list"| grep $name`
+                process_benchmark_polybench "$path"
                 echo ""
             fi
         done

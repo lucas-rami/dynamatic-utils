@@ -76,7 +76,7 @@ LLVMStatisticsPass::analyzeInstructions(Function &f) {
        {"add", "sub", "icmp", "mul", "fmul", "fadd", "fcmp", "fsub", "fdiv",
         "sdiv", "urem", "shl"}},
       {LOGICAL_OP, {"and", "or", "xor", "select", "ashr"}},
-      {CONTROL_OP, {"br", "ret"}},
+      {CONTROL_OP, {"br", "ret", "call"}},
       {CAST_OP, {"sext", "zext", "trunc", "sitofp", "bitcast"}},
   };
   set<string> unknownInstr{"phi", "getelementptr"};
