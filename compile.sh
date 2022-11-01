@@ -24,6 +24,7 @@ check_env_variables \
     POLYGEIST_OPT_BIN \
     POLYMER_OPT_BIN \
     MLIR_OPT_BIN \
+    CIRCT_OPT_BIN \
     DYNAMATIC_SRC \
     DYNAMATIC_DST \
     POLYBENCH_SRC \
@@ -201,6 +202,56 @@ compile_mlir_internal() {
     return 0
 }
 
+compile_handshake() {
+    local kernel_name=$1
+    local f_std=$2
+    local f_handshake=$3
+    local f_handshake_opt=$4
+    local f_handshake_dot=$5
+    local f_handshake_png=$6
+
+    # standard dialect -> handshake dialect
+    "$CIRCT_OPT_BIN" "$f_std" \
+        -allow-unregistered-dialect --flatten-memref --flatten-memref-calls \
+        --lower-std-to-handshake \
+        > "$f_handshake"
+    if [ $? -ne 0 ]; then 
+        echo "[MLIR] standard dialect -> handshake dialect failed"
+        return 1
+    fi
+
+    # handshake dialect -> optimized handshake dialect
+    "$CIRCT_OPT_BIN" "$f_handshake" \
+        -allow-unregistered-dialect --handshake-materialize-forks-sinks \
+        --canonicalize \
+        > "$f_handshake_opt"
+    if [ $? -ne 0 ]; then 
+        echo "[MLIR] handshake dialect -> optimized handshake dialect failed"
+        return 1
+    fi
+        
+    # Create DOT graph at handshake level
+    "$CIRCT_OPT_BIN" "$f_handshake_opt" \
+        -allow-unregistered-dialect --handshake-print-dot \
+        > /dev/null 2>&1 
+    if [ $? -ne 0 ]; then
+        # DOT gets generated in script directory, remove it 
+        rm "$kernel_name.dot" 
+        
+        echo "[MLIR] Creation of handshake Graphviz visualization failed"
+        return 1
+    else
+        # DOT gets generated in script directory, move it to the right place
+        mv "$kernel_name.dot" "$f_handshake_dot"
+
+        # Convert DOT graph to PNG
+        dot -Tpng "$f_handshake_dot" > "$f_handshake_png"
+        echo "[MLIR] Creation of handshake Graphviz visualization succeeded"
+    fi
+
+    return 0
+}
+
 compile_mlir () {
     local bench_dir=$1
     local kernel_name=$2
@@ -261,6 +312,11 @@ compile_mlir () {
         dot -Tpng "$f_dot" > "$f_png"
         echo "[MLIR] Creation of Graphviz visualization succeeded"
     fi
+
+    # Compile to handshake
+    compile_handshake "$kernel_name" "$f_std_fun" "$mlir_out/handshake.mlir" \
+        "$mlir_out/handshake_opt.mlir" "$mlir_out/handshake.dot" \
+        "$mlir_out/handshake.png"
 
     return 0
 
