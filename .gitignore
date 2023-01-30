@@ -31,11 +31,15 @@
 *.out
 *.app
 
-# Results folder
-/benchmarks
+# Dynamatic directory (install your own)
+dynamatic/
 
-# Build folder
-/build
+# Results directories
+benchmarks/
+dynamatic-to-dot/
+
+# Build directory
+build/
 
 # pycache
 __pycache__
