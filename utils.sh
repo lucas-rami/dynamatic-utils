@@ -2,23 +2,34 @@
 
 # Helper function to exit script on failed command
 exit_on_fail() {
-    local err_msg=$1
-    local success_msg=$2
     if [[ $? -ne 0 ]]; then
-        if [[ ! -z $err_msg ]]; then
-            echo -e "\n [FATAL] exit_on_fail: $err_msg"
+        if [[ ! -z $1 ]]; then
+            echo "[FATAL] exit_on_fail: $1"
+            exit
         fi
         echo -e "[FATAL] exit_on_fail: failed!"
         exit 1
     else
-        if [[ ! -z $success_msg ]]; then
-            echo -e "[INFO] $success_msg"
+        if [[ ! -z $2 ]]; then
+            echo "[INFO] $2"
         fi
     fi
 }
 
+# Helper function to print status after command
+echo_status() {
+    local ret=$?
+    if [[ $ret -ne 0 ]]; then
+        echo "[ERROR] $1"
+    else
+        if [[ ! -z $2 ]]; then
+            echo "[INFO] $2"
+        fi
+    fi
+    return $ret
+}
+
 check_env_variables () {
-    echo "---- Checking for environment variables ----"
     for env_var in "$@"; do
         local echo_in='echo $env_var' 
         local echo_out="echo \$$(eval $echo_in)"
@@ -30,7 +41,6 @@ check_env_variables () {
             echo "[INFO] check_env_variables: found $env_var ($env_val)"
         fi
     done
-    echo -e "---- Done! ----"\n
 }
 
 copy_src () {
@@ -56,5 +66,6 @@ copy_src () {
     mkdir -p "$dst_dir"
     cp "$src_dir/$name.$c_ext" "$dst_dir/$name.c"
     cp "$src_dir/$name.h" "$dst_dir/$name.h"
+    echo "[INFO] copy_src: Source copied $src_dir -> $dst_dir"
     return 0
 }

@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Kill the whole script on Ctrl+C
+trap "exit" INT
+
 # Get common functions
 source ./utils.sh
 
@@ -8,32 +11,31 @@ check_env_variables \
     DYNAMATIC_PATH \
     LLVM_CLANG_BIN \
     LLVM_OPT_BIN \
-    DYNAMATIC_SRC
+    DYNAMATIC_SRC \
+    OUT_DIR
 
-# Destination folder for output of this script
-DST="dynamatic-to-dot"
-
-elastic_circuit () {
-    local bench_dir=$1
+run_elastic_circuit () {
+    local bench_dir="$1"
     local name="$(basename $bench_dir)"
-    local llvm_out="$bench_dir/llvm"
+    local out="$bench_dir/llvm"
+
+    mkdir -p "$out"
 
     # Generated files
-    local f_ir="$bench_dir/ir.ll"
-    local f_ir_opt="$bench_dir/ir_opt.ll"
-    local f_dot="$bench_dir/$name.dot"
-    local f_dot_bb="$bench_dir/${name}_bb.dot"
-    local f_png="$bench_dir/$name.png"
-    local f_png_bb="$bench_dir/${name}_bb.png"
-
+    local f_ir="$out/ir.ll"
+    local f_ir_opt="$out/ir_opt.ll"
+    local f_dot="$out/$name.dot"
+    local f_dot_bb="$out/${name}_bb.dot"
+    local f_png="$out/$name.png"
+    local f_png_bb="$out/${name}_bb.png"
 
     # Compile source to LLVM IR
 	"$LLVM_CLANG_BIN" -Xclang -disable-O0-optnone -emit-llvm -S \
         -I "$bench_dir" \
         -c "$bench_dir/$name.c" \
-        -o $bench_dir/ir.ll
+        -o $out/ir.ll
     exit_on_fail "Failed to compile to LLVM IR" "Compiled to LLVM IR"
-
+    
     # Apply standard optimizations to LLVM IR
 	"$LLVM_OPT_BIN" -mem2reg -loop-rotate -constprop -simplifycfg -die \
         -instcombine -lowerswitch $f_ir -S -o "$f_ir_opt"
@@ -47,48 +49,49 @@ elastic_circuit () {
         -load "$passes_dir/OptimizeBitwidth/libLLVMOptimizeBitWidth.so" \
         -load "$passes_dir/MyCFGPass/libMyCFGPass.so" \
         -polly-process-unprofitable -mycfgpass -S "$f_ir_opt" \
-        "-cfg-outdir=$bench_dir" > /dev/null 2>&1
-    exit_on_fail "Failed to apply custom optimization" "Applied custom optimization"
+        "-cfg-outdir=$out" > /dev/null 2>&1
+    # Can't check the return value here, as this often crashes right after
+    # generating the files we want
+    if [[ ! -f "$out/${name}_graph.dot" || ! -f "$out/${name}_bbgraph.dot" ]]; then
+        return 1
+    fi
+    
+    echo "[INFO] Applied custom optimization"
 
     # Rename DOT files
-    mv "$bench_dir/${name}_graph.dot" "$f_dot"
-    mv "$bench_dir/${name}_bbgraph.dot" "$f_dot_bb"
+    mv "$out/${name}_graph.dot" "$f_dot"
+    mv "$out/${name}_bbgraph.dot" "$f_dot_bb"
 
     # Convert to PNG
     dot -Tpng "$f_dot" > "$f_png"
-    exit_on_fail "Failed to convert DOT to PNG" "Converted DOT to PNG"
-    dot -Tpng "$f_dot_bb" > "$f_png_bb"
-    exit_on_fail "Failed to convert DOT (BB) to PNG" "Converted DOT (BB) to PNG"
+    echo_status "Failed to convert DOT to PNG" "Converted DOT to PNG"
 
+    dot -Tpng "$f_dot_bb" > "$f_png_bb"
+    echo_status "Failed to convert DOT (BB) to PNG" "Converted DOT (BB) to PNG"
     return 0
 }
 
 process_benchmark () {
     local name=$1
+    local out="$OUT_DIR/compile"
 
-    echo "---- Compiling $name ----"
+    echo "[INFO] Compiling $name"
 
     # Copy benchmark from Dynamatic folder to local folder
-    copy_src "$DYNAMATIC_SRC/$name/src" "$DST/$name" "$name" "cpp"
-    exit_on_fail "Failed to copy source files" ""
+    copy_src "$DYNAMATIC_SRC/$name/src" "$out/$name" "$name" "cpp"
+    exit_on_fail "Failed to copy source files"
 
     # Run elastic circuit pass with Dynamatic
-    elastic_circuit "$DST/$name"
-    exit_on_fail "Failed to run elastic circuit pass"
-    echo 
+    run_elastic_circuit "$out/$name"
+    echo_status "Failed to run elastic circuit pass"
 
-    echo -e "---- Done! ----\n"
+    echo -e "[INFO] Done compiling $name\n"
     return 0
 }
-
 
 for name in $DYNAMATIC_SRC/*/; do
     bname="$(basename $name)"
     process_benchmark "$bname"
-    if [ $? -ne 0 ]; then 
-        return 1
-    fi
-    echo ""
 done
 
-echo -e "---- All done! ----\n"
+echo "[INFO] All done!"
