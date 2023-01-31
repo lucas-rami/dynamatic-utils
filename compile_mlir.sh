@@ -47,7 +47,7 @@ run_mlir_lowering () {
     # standard dialect -> handshake dialect
     "$CIRCT_OPT_BIN" "$f_std" \
         -allow-unregistered-dialect --flatten-memref --flatten-memref-calls \
-        --lower-std-to-handshake \
+        --lower-std-to-handshake="disable-task-pipelining source-constants" \
         > "$f_handshake"
     exit_on_fail "Failed std -> handshake conversion" "Lowered to handshake"
 
