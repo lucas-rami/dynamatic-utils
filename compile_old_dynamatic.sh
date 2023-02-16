@@ -11,14 +11,13 @@ check_env_variables \
     DYNAMATIC_PATH \
     LLVM_CLANG_BIN \
     LLVM_OPT_BIN \
-    DYNAMATIC_SRC \
-    OUT_DIR
+    BENCHMARKS_PATH \
+    OUT_PATH
 
-run_elastic_circuit () {
+compile () {
     local bench_dir="$1"
     local name="$(basename $bench_dir)"
-    local out="$bench_dir/llvm"
-
+    local out="$bench_dir/old_dynamatic"
     mkdir -p "$out"
 
     # Generated files
@@ -29,19 +28,19 @@ run_elastic_circuit () {
     local f_png="$out/$name.png"
     local f_png_bb="$out/${name}_bb.png"
 
-    # Compile source to LLVM IR
+    # source code -> LLVM IR
 	"$LLVM_CLANG_BIN" -Xclang -disable-O0-optnone -emit-llvm -S \
         -I "$bench_dir" \
         -c "$bench_dir/$name.c" \
         -o $out/ir.ll
     exit_on_fail "Failed to compile to LLVM IR" "Compiled to LLVM IR"
     
-    # Apply standard optimizations to LLVM IR
+    # LLVM IR -> standard optimized LLVM IR
 	"$LLVM_OPT_BIN" -mem2reg -loop-rotate -constprop -simplifycfg -die \
         -instcombine -lowerswitch $f_ir -S -o "$f_ir_opt"
-    exit_on_fail "Failed to apply tandard optimization" "Applied standard optimization"
+    exit_on_fail "Failed to apply standard optimization" "Applied standard optimization"
 
-    # Apply custom optimizations
+    # standard optimized LLVM IR -> elastic circuit
 	local passes_dir="$DYNAMATIC_PATH/dhls/etc/dynamatic/elastic-circuits/_build/"
     "$LLVM_OPT_BIN" \
         -load "$passes_dir/MemElemInfo/libLLVMMemElemInfo.so" \
@@ -55,8 +54,7 @@ run_elastic_circuit () {
     if [[ ! -f "$out/${name}_graph.dot" || ! -f "$out/${name}_bbgraph.dot" ]]; then
         return 1
     fi
-    
-    echo "[INFO] Applied custom optimization"
+    echo "[INFO] Applied elastic pass"
 
     # Rename DOT files
     mv "$out/${name}_graph.dot" "$f_dot"
@@ -73,25 +71,24 @@ run_elastic_circuit () {
 
 process_benchmark () {
     local name=$1
-    local out="$OUT_DIR/compile"
+    local out="$OUT_PATH/compile"
 
-    echo "[INFO] Compiling $name"
+    echo_section "Compiling $name"
 
     # Copy benchmark from Dynamatic folder to local folder
-    copy_src "$DYNAMATIC_SRC/$name/src" "$out/$name" "$name" "cpp"
+    copy_src "$BENCHMARKS_PATH/$name/src" "$out/$name" "$name" "cpp"
     exit_on_fail "Failed to copy source files"
 
-    # Run elastic circuit pass with Dynamatic
-    run_elastic_circuit "$out/$name"
-    echo_status "Failed to run elastic circuit pass"
-
-    echo -e "[INFO] Done compiling $name\n"
-    return 0
+    # Compile with old Dynamatic
+    compile "$out/$name"
+    echo_status "Failed to compile $name" "Done compiling $name"
+    return $?
 }
 
-for name in $DYNAMATIC_SRC/*/; do
+for name in $BENCHMARKS_PATH/*/; do
     bname="$(basename $name)"
     process_benchmark "$bname"
+    echo ""
 done
 
 echo "[INFO] All done!"

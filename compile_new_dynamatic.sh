@@ -8,18 +8,17 @@ source ./utils.sh
 
 # Check that required environment variables exist
 check_env_variables \
-    DYNAMATIC_SRC \
+    BENCHMARKS_PATH \
     POLYGEIST_PATH \
-    MLIR_CLANG_BIN \
+    POLYGEIST_CLANG_BIN \
     MLIR_OPT_BIN \
-    CIRCT_OPT_BIN \
-    OUT_DIR
+    DYNAMATIC_OPT_BIN \
+    OUT_PATH
 
-run_mlir_lowering () {
+compile () {
     local bench_dir=$1
     local name="$(basename $bench_dir)"
-    local out="$bench_dir/mlir"
-
+    local out="$bench_dir/new_dynamatic"
     mkdir -p "$out"
 
     # Generated files
@@ -31,69 +30,65 @@ run_mlir_lowering () {
 
     # source code -> affine dialect 
     local include="$POLYGEIST_PATH/llvm-project/clang/lib/Headers/"
-    "$MLIR_CLANG_BIN" "$bench_dir/$name.c" \
-        -I "$include" -function="$name" -S -O3 -raise-scf-to-affine \
-        -memref-fullrank \
-        > "$f_affine"
+    "$POLYGEIST_CLANG_BIN" "$bench_dir/$name.c" \
+        -I "$include" --function="$name" -S -O3 --raise-scf-to-affine \
+        --memref-fullrank \
+        > "$f_affine" 2>/dev/null
     exit_on_fail "Failed source -> affine conversion" "Lowered to affine"
     
     # affine dialect -> standard dialect
     local to_std_passes="-convert-scf-to-cf -canonicalize -cse -sccp \
         -symbol-dce -control-flow-sink -loop-invariant-code-motion \
         -canonicalize"
-    "$MLIR_OPT_BIN" "$f_affine" -lower-affine $to_std_passes > "$f_std"
+    "$MLIR_OPT_BIN" "$f_affine" --lower-affine $to_std_passes > "$f_std"
     exit_on_fail "Failed affine -> std conversion" "Lowered to std"
 
     # standard dialect -> handshake dialect
-    "$CIRCT_OPT_BIN" "$f_std" \
-        -allow-unregistered-dialect --flatten-memref --flatten-memref-calls \
-        --lower-std-to-handshake="disable-task-pipelining source-constants" \
-        > "$f_handshake"
+    "$DYNAMATIC_OPT_BIN" "$f_std" --allow-unregistered-dialect \
+        --flatten-memref --flatten-memref-calls --push-constants \
+        --lower-std-to-handshake-fpga18="id-basic-blocks" > "$f_handshake"
     exit_on_fail "Failed std -> handshake conversion" "Lowered to handshake"
 
     # Create DOT graph
-    "$CIRCT_OPT_BIN" "$f_handshake" \
-        -allow-unregistered-dialect --handshake-print-dot \
-        > /dev/null 2>&1 
+    "$DYNAMATIC_OPT_BIN" "$f_handshake" --allow-unregistered-dialect \
+        --handshake-to-dot > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         # DOT gets generated in script directory, remove it 
         rm "$name.dot" 
-        
+    
         echo "[ERROR] Failed to create DOT graph"
         return 1
-    else
-        # DOT gets generated in script directory, move it to the right place
-        mv "$name.dot" "$f_dot"
-
-        # Convert DOT graph to PNG
-        dot -Tpng "$f_dot" > "$f_png"
-        echo_status "Failed to convert DOT to PNG" "Converted DOT to PNG"
     fi
 
+    # DOT gets generated in script directory, move it to the right place
+    mv "$name.dot" "$f_dot"
+
+    # Convert DOT graph to PNG
+    dot -Tpng "$f_dot" > "$f_png"
+    echo_status "Failed to convert DOT to PNG" "Converted DOT to PNG"
     return 0
 }
 
 process_benchmark () {
     local name=$1
-    local out="$OUT_DIR/compile"
+    local out="$OUT_PATH/compile"
 
-    echo "[INFO] Compiling $name"
+    echo_section "Compiling $name"
 
     # Copy benchmark from Dynamatic folder to local folder
-    copy_src "$DYNAMATIC_SRC/$name/src" "$out/$name" "$name" "cpp"
-    exit_on_fail "Failed to copy source files" ""
+    copy_src "$BENCHMARKS_PATH/$name/src" "$out/$name" "$name" "cpp"
+    exit_on_fail "Failed to copy source files"
 
-    # Run MLIR lowering
-    run_mlir_lowering "$out/$name"
-    echo_status "Failed to run MLIR lowering"
-
-    echo -e "[INFO] Done compiling $name\n"
-    return 0
+    # Compile with new Dynamatic
+    compile "$out/$name"
+    echo_status "Failed to compile $name" "Done compiling $name"
+    return $?
 }
 
-for name in $DYNAMATIC_SRC/*/; do
+for name in $BENCHMARKS_PATH/*/; do
     bname="$(basename $name)"
     process_benchmark "$bname"
+    echo ""
 done
 
 echo "[INFO] All done!"

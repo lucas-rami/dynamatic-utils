@@ -16,20 +16,28 @@ exit_on_fail() {
     fi
 }
 
+# Helper function to print large section text
+echo_section() {
+    echo "# ===----------------------------------------------------------------------=== #"
+    echo "# $1"
+    echo "# ===----------------------------------------------------------------------=== #"
+}
+
 # Helper function to print status after command
 echo_status() {
     local ret=$?
     if [[ $ret -ne 0 ]]; then
-        echo "[ERROR] $1"
+        echo -e "[ERROR] $1"
     else
         if [[ ! -z $2 ]]; then
-            echo "[INFO] $2"
+            echo -e "[INFO] $2"
         fi
     fi
     return $ret
 }
 
 check_env_variables () {
+    echo_section "Checking environment variables"
     for env_var in "$@"; do
         local echo_in='echo $env_var' 
         local echo_out="echo \$$(eval $echo_in)"
@@ -41,6 +49,7 @@ check_env_variables () {
             echo "[INFO] check_env_variables: found $env_var ($env_val)"
         fi
     done
+    echo ""
 }
 
 copy_src () {
