@@ -51,7 +51,8 @@ compile () {
 
     # Create DOT graph
     "$DYNAMATIC_OPT_BIN" "$f_handshake" --allow-unregistered-dialect \
-        --handshake-to-dot > /dev/null 2>&1
+        --handshake-materialize-forks-sinks --infer-basic-blocks \
+        --export-dot > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         # DOT gets generated in script directory, remove it 
         rm "$name.dot" 

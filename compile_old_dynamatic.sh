@@ -8,7 +8,7 @@ source ./utils.sh
 
 # Check that required environment variables exist
 check_env_variables \
-    DYNAMATIC_PATH \
+    OLD_DYNAMATIC_PATH \
     LLVM_CLANG_BIN \
     LLVM_OPT_BIN \
     BENCHMARKS_PATH \
@@ -41,7 +41,7 @@ compile () {
     exit_on_fail "Failed to apply standard optimization" "Applied standard optimization"
 
     # standard optimized LLVM IR -> elastic circuit
-	local passes_dir="$DYNAMATIC_PATH/dhls/etc/dynamatic/elastic-circuits/_build/"
+	local passes_dir="$OLD_DYNAMATIC_PATH/dhls/etc/dynamatic/elastic-circuits/_build/"
     "$LLVM_OPT_BIN" \
         -load "$passes_dir/MemElemInfo/libLLVMMemElemInfo.so" \
         -load "$passes_dir/ElasticPass/libElasticPass.so" \
