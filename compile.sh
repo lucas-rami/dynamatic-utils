@@ -3,7 +3,7 @@
 source ./utils.sh
 
 check_env_variables \
-    OLD_DYNAMATIC_PATH \
+    LEGACY_DYNAMATIC_PATH \
     POLYBENCH_PATH \
     LLVM_CLANG_BIN \
     LLVM_OPT_BIN \
@@ -94,7 +94,7 @@ compile_llvm () {
     fi
 
     # Apply custom optimizations
-	local passes_dir="$OLD_DYNAMATIC_PATH/dhls/etc/dynamatic/elastic-circuits/_build/"
+	local passes_dir="$LEGACY_DYNAMATIC_PATH/dhls/etc/dynamatic/elastic-circuits/_build/"
     "$LLVM_OPT_BIN" \
         -load "$passes_dir/MemElemInfo/libLLVMMemElemInfo.so" \
         -load "$passes_dir/ElasticPass/libElasticPass.so" \

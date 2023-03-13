@@ -18,13 +18,14 @@ check_env_variables \
 compile () {
     local bench_dir=$1
     local name="$(basename $bench_dir)"
-    local out="$bench_dir/new_dynamatic"
+    local out="$bench_dir/dynamatic"
     mkdir -p "$out"
 
     # Generated files
     local f_affine="$out/affine.mlir"
     local f_std="$out/std.mlir"
     local f_handshake="$out/handshake.mlir"
+    local f_handshake_ready="$out/handshake_ready.mlir"
     local f_dot="$out/$name.dot"
     local f_png="$out/$name.png"
 
@@ -49,9 +50,15 @@ compile () {
         --lower-std-to-handshake-fpga18="id-basic-blocks" > "$f_handshake"
     exit_on_fail "Failed std -> handshake conversion" "Lowered to handshake"
 
-    # Create DOT graph
+    # handshake dialect -> ready for export
     "$DYNAMATIC_OPT_BIN" "$f_handshake" --allow-unregistered-dialect \
+        --prepare-for-legacy --infer-basic-blocks \
         --handshake-materialize-forks-sinks --infer-basic-blocks \
+        > "$f_handshake_ready"
+    exit_on_fail "Failed handshake -> ready for export conversion " "Ready to export"
+
+    # Create DOT graph
+    "$DYNAMATIC_OPT_BIN" "$f_handshake_ready" --allow-unregistered-dialect \
         --export-dot > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         # DOT gets generated in script directory, remove it 

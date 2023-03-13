@@ -12,7 +12,7 @@ check_env_variables \
     POLYGEIST_PATH \
     POLYGEIST_CLANG_BIN \
     MLIR_OPT_BIN \
-    DYNAMATIC_OPT_BIN \
+    CIRCT_OPT_BIN \
     OUT_PATH
 
 compile () {
@@ -25,14 +25,15 @@ compile () {
     local f_affine="$out/affine.mlir"
     local f_std="$out/std.mlir"
     local f_handshake="$out/handshake.mlir"
+    local f_hw="$out/hw.mlir"
     local f_dot="$out/$name.dot"
     local f_png="$out/$name.png"
 
     # source code -> affine dialect 
     local include="$POLYGEIST_PATH/llvm-project/clang/lib/Headers/"
     "$POLYGEIST_CLANG_BIN" "$bench_dir/$name.c" \
-        -I "$include" -function="$name" -S -O3 -raise-scf-to-affine \
-        -memref-fullrank \
+        -I "$include" --function="$name" -S -O3 --raise-scf-to-affine \
+        --memref-fullrank \
         > "$f_affine" 2>/dev/null
     exit_on_fail "Failed source -> affine conversion" "Lowered to affine"
     
@@ -44,14 +45,14 @@ compile () {
     exit_on_fail "Failed affine -> std conversion" "Lowered to std"
 
     # standard dialect -> handshake dialect
-    "$DYNAMATIC_OPT_BIN" "$f_std" -allow-unregistered-dialect \
+    "$CIRCT_OPT_BIN" "$f_std" --allow-unregistered-dialect \
         --flatten-memref --flatten-memref-calls \
         --lower-std-to-handshake="disable-task-pipelining source-constants" \
         > "$f_handshake"
     exit_on_fail "Failed std -> handshake conversion" "Lowered to handshake"
 
     # Create DOT graph
-    "$DYNAMATIC_OPT_BIN" "$f_handshake" -allow-unregistered-dialect \
+    "$CIRCT_OPT_BIN" "$f_handshake" --allow-unregistered-dialect \
         --handshake-print-dot > /dev/null 2>&1 
     if [ $? -ne 0 ]; then
         # DOT gets generated in script directory, remove it 
