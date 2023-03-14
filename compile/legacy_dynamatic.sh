@@ -1,18 +1,27 @@
 #!/bin/bash
 
+# ===- legacy_dynamatic.sh - Compile w/ legacy Dynamatic -------*- Bash -*-=== #
+# 
+# This script compiles all benchmarks from legacy Dynamatic using the legacy
+# Dynamatic flow, eventually producing a DOT file representing the circuit for
+# each benchmark. Results of intermediate conversion steps are also kept for
+# completeness. All results are placed in a folder named "out" created next to
+# this file.
+# 
+# ===----------------------------------------------------------------------=== #
+
 # Kill the whole script on Ctrl+C
 trap "exit" INT
 
 # Get common functions
-source ./utils.sh
+source ../utils.sh
 
 # Check that required environment variables exist
 check_env_variables \
     LEGACY_DYNAMATIC_PATH \
     LLVM_CLANG_BIN \
     LLVM_OPT_BIN \
-    BENCHMARKS_PATH \
-    OUT_PATH
+    BENCHMARKS_PATH
 
 compile () {
     local bench_dir="$1"
@@ -71,7 +80,7 @@ compile () {
 
 process_benchmark () {
     local name=$1
-    local out="$OUT_PATH/compile"
+    local out="out"
 
     echo_section "Compiling $name"
 

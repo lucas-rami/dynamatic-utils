@@ -1,10 +1,20 @@
 #!/bin/bash
 
+# ===- circt.sh - Compile w/ CIRCT -----------------------------*- Bash -*-=== #
+# 
+# This script compiles all benchmarks from legacy Dynamatic using the CIRCT
+# flow, eventually producing a DOT file representing the circuit for each
+# benchmark. Results of intermediate conversion steps are also kept for
+# completeness. All results are placed in a folder named "out" created next to
+# this file.
+# 
+# ===----------------------------------------------------------------------=== #
+
 # Kill the whole script on Ctrl+C
 trap "exit" INT
 
 # Get common functions
-source ./utils.sh
+source ../utils.sh
 
 # Check that required environment variables exist
 check_env_variables \
@@ -12,8 +22,7 @@ check_env_variables \
     POLYGEIST_PATH \
     POLYGEIST_CLANG_BIN \
     MLIR_OPT_BIN \
-    CIRCT_OPT_BIN \
-    OUT_PATH
+    CIRCT_OPT_BIN
 
 compile () {
     local bench_dir=$1
@@ -73,7 +82,7 @@ compile () {
 
 process_benchmark () {
     local name=$1
-    local out="$OUT_PATH/compile"
+    local out="out"
 
     echo_section "Compiling $name"
 
