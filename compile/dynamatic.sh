@@ -22,7 +22,8 @@ check_env_variables \
     POLYGEIST_PATH \
     POLYGEIST_CLANG_BIN \
     MLIR_OPT_BIN \
-    DYNAMATIC_OPT_BIN
+    DYNAMATIC_OPT_BIN \
+    DOT2VHDL_BIN
 
 compile () {
     local bench_dir=$1
@@ -34,7 +35,7 @@ compile () {
     local f_affine="$out/affine.mlir"
     local f_std="$out/std.mlir"
     local f_handshake="$out/handshake.mlir"
-    local f_handshake_ready="$out/handshake_ready.mlir"
+    local f_netlist="$out/netlist.mlir"
     local f_dot="$out/$name.dot"
     local f_png="$out/$name.png"
 
@@ -59,15 +60,15 @@ compile () {
         --lower-std-to-handshake-fpga18="id-basic-blocks" > "$f_handshake"
     exit_on_fail "Failed std -> handshake conversion" "Lowered to handshake"
 
-    # handshake dialect -> ready for export
+    # handshake dialect -> netlist
     "$DYNAMATIC_OPT_BIN" "$f_handshake" --allow-unregistered-dialect \
-        --prepare-for-legacy --infer-basic-blocks \
-        --handshake-materialize-forks-sinks --infer-basic-blocks \
-        > "$f_handshake_ready"
-    exit_on_fail "Failed handshake -> ready for export conversion " "Ready to export"
+        --handshake-materialize-forks-sinks --lower-handshake-to-netlist \
+        > "$f_netlist"
+    exit_on_fail "Failed handshake -> netlist conversion" "Lowered to netlist"
 
     # Create DOT graph
-    "$DYNAMATIC_OPT_BIN" "$f_handshake_ready" --allow-unregistered-dialect \
+    "$DYNAMATIC_OPT_BIN" "$f_handshake" --allow-unregistered-dialect \
+        --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
         --export-dot > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         # DOT gets generated in script directory, remove it 
@@ -82,7 +83,7 @@ compile () {
 
     # Convert DOT graph to PNG
     dot -Tpng "$f_dot" > "$f_png"
-    echo_status "Failed to convert DOT to PNG" "Converted DOT to PNG"
+    exit_on_fail "Failed to convert DOT to PNG" "Converted DOT to PNG"
     return 0
 }
 
