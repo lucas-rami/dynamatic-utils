@@ -70,6 +70,7 @@ compile () {
         echo "[ERROR] Failed to create DOT graph"
         return 1
     fi
+    echo "[INFO] Created DOT graph"
 
     # DOT gets generated in script directory, move it to the right place
     mv "$name.dot" "$f_dot"

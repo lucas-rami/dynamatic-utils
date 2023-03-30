@@ -22,8 +22,7 @@ check_env_variables \
     POLYGEIST_PATH \
     POLYGEIST_CLANG_BIN \
     MLIR_OPT_BIN \
-    DYNAMATIC_OPT_BIN \
-    DOT2VHDL_BIN
+    DYNAMATIC_OPT_BIN
 
 compile () {
     local bench_dir=$1
@@ -77,6 +76,8 @@ compile () {
         echo "[ERROR] Failed to create DOT graph"
         return 1
     fi
+    echo "[INFO] Created DOT graph"
+
 
     # DOT gets generated in script directory, move it to the right place
     mv "$name.dot" "$f_dot"
