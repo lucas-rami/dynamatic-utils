@@ -19,9 +19,15 @@ source ../utils.sh
 # Check that required environment variables exist
 check_env_variables \
     LEGACY_DYNAMATIC_PATH \
+    LEGACY_DYNAMATIC_ROOT \
     LLVM_CLANG_BIN \
     LLVM_OPT_BIN \
     BENCHMARKS_PATH
+
+# Path to build folders containing legacy Dynamatic object files
+ELASTIC_BUILD_PATH="$LEGACY_DYNAMATIC_ROOT/elastic-circuits/_build"
+FREQUENCY_COUNTER_PATH="$ELASTIC_BUILD_PATH/FrequencyCounterPass"
+FREQUENCY_DATA_PATH="$ELASTIC_BUILD_PATH/FrequencyDataGatherPass"
 
 compile () {
     local bench_dir="$1"
@@ -32,6 +38,7 @@ compile () {
     # Generated files
     local f_ir="$out/ir.ll"
     local f_ir_opt="$out/ir_opt.ll"
+    local f_ir_opt_obj="$out/ir_opt.o"
     local f_dot="$out/$name.dot"
     local f_dot_bb="$out/${name}_bb.dot"
     local f_png="$out/$name.png"
@@ -49,15 +56,47 @@ compile () {
         -instcombine -lowerswitch $f_ir -S -o "$f_ir_opt"
     exit_on_fail "Failed to apply standard optimization" "Applied standard optimization"
 
+    # Run frequency analysis
+	"$LLVM_CLANG_BIN" -fPIC -Xclang -load -Xclang \
+        "$FREQUENCY_COUNTER_PATH/libFrequencyCounterPass.so" -c "$f_ir_opt" \
+        -o "$f_ir_opt_obj"
+	"$LLVM_CLANG_BIN" -fPIC "$f_ir_opt_obj" \
+        "$FREQUENCY_COUNTER_PATH/log_FrequencyCounter.o"
+	./a.out
+	rm a.out
+	"$LLVM_CLANG_BIN" -Xclang -load -Xclang \
+        "$FREQUENCY_DATA_PATH/libFrequencyDataGatherPass.so" $f_ir_opt"" -S
+	rm *.s
+
     # standard optimized LLVM IR -> elastic circuit
-	local passes_dir="$LEGACY_DYNAMATIC_PATH/dhls/etc/dynamatic/elastic-circuits/_build/"
+    "$LLVM_OPT_BIN" \ifycfg -die \
+        -instcombine -lowerswitch $f_ir -S -o "$f_ir_opt"
+    exit_on_fail "Failed to apply standard optimization" "Applied standard optimization"
+
+    # Run frequency analysis
+	"$LLVM_CLANG_BIN" -fPIC -Xclang -load -Xclang \
+        "$FREQUENCY_COUNTER_PATH/libFrequencyCounterPass.so" -c "$f_ir_opt" \
+        -o "$f_ir_opt_obj"
+	"$LLVM_CLANG_BIN" -fPIC "$f_ir_opt_obj" \
+        "$FREQUENCY_COUNTER_PATH/log_FrequencyCounter.o"
+	./a.out
+	rm a.out
+	"$LLVM_CLANG_BIN" -Xclang -load -Xclang \
+        "$FREQUENCY_DATA_PATH/libFrequencyDataGatherPass.so" $f_ir_opt"" -S
+	rm *.s
+
+    # standard optimized LLVM IR -> elastic circuit
     "$LLVM_OPT_BIN" \
-        -load "$passes_dir/MemElemInfo/libLLVMMemElemInfo.so" \
-        -load "$passes_dir/ElasticPass/libElasticPass.so" \
-        -load "$passes_dir/OptimizeBitwidth/libLLVMOptimizeBitWidth.so" \
-        -load "$passes_dir/MyCFGPass/libMyCFGPass.so" \
+        -load "$ELASTIC_BUILD_PATH/MemElemInfo/libLLVMMemElemInfo.so" \
+        -load "$ELASTIC_BUILD_PATH/ElasticPass/libElasticPass.so" \
+        -load "$ELASTIC_BUILD_PATH/OptimizeBitwidth/libLLVMOptimizeBitWidth.so" \
+        -load "$ELASTIC_BUILD_PATH/MyCFGPass/libMyCFGPass.so" \
         -polly-process-unprofitable -mycfgpass -S "$f_ir_opt" \
         "-cfg-outdir=$out" > /dev/null 2>&1
+
+    # Remove temporary build files
+    rm *_freq.txt mapping.txt out.txt
+
     # Can't check the return value here, as this often crashes right after
     # generating the files we want
     if [[ ! -f "$out/${name}_graph.dot" || ! -f "$out/${name}_bbgraph.dot" ]]; then
@@ -75,6 +114,7 @@ compile () {
 
     dot -Tpng "$f_dot_bb" > "$f_png_bb"
     echo_status "Failed to convert DOT (BB) to PNG" "Converted DOT (BB) to PNG"
+
     return 0
 }
 

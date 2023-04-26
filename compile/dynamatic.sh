@@ -21,6 +21,7 @@ check_env_variables \
     BENCHMARKS_PATH \
     POLYGEIST_PATH \
     POLYGEIST_CLANG_BIN \
+    POLYGEIST_OPT_BIN \
     MLIR_OPT_BIN \
     DYNAMATIC_OPT_BIN
 
@@ -31,7 +32,9 @@ compile () {
     mkdir -p "$out"
 
     # Generated files
+    local f_scf="$out/scf.mlir"
     local f_affine="$out/affine.mlir"
+    local f_affine_mem="$out/affine_mem.mlir"
     local f_std="$out/std.mlir"
     local f_handshake="$out/handshake.mlir"
     local f_netlist="$out/netlist.mlir"
@@ -40,18 +43,26 @@ compile () {
 
     # source code -> affine dialect 
     local include="$POLYGEIST_PATH/llvm-project/clang/lib/Headers/"
-    "$POLYGEIST_CLANG_BIN" "$bench_dir/$name.c" \
-        -I "$include" --function="$name" -S -O3 --raise-scf-to-affine \
-        --memref-fullrank \
+    "$POLYGEIST_CLANG_BIN" "$bench_dir/$name.c" -I "$include" \
+        --function="$name" -S -O3 --memref-fullrank --raise-scf-to-affine \
         > "$f_affine" 2>/dev/null
     exit_on_fail "Failed source -> affine conversion" "Lowered to affine"
     
-    # affine dialect -> standard dialect
-    local to_std_passes="-convert-scf-to-cf -canonicalize -cse -sccp \
-        -symbol-dce -control-flow-sink -loop-invariant-code-motion \
-        -canonicalize"
-    "$MLIR_OPT_BIN" "$f_affine" --lower-affine $to_std_passes > "$f_std"
-    exit_on_fail "Failed affine -> std conversion" "Lowered to std"
+    # memory analysis 
+    "$DYNAMATIC_OPT_BIN" "$f_affine" --allow-unregistered-dialect \
+        --name-memory-ops --analyze-memory-accesses > "$f_affine_mem"
+    exit_on_fail "Failed memory analysis" "Passed memory analysis"
+
+    # affine dialect -> scf dialect
+    "$DYNAMATIC_OPT_BIN" "$f_affine_mem" --allow-unregistered-dialect \
+        --lower-affine-to-scf > "$f_scf"
+    exit_on_fail "Failed affine -> scf conversion" "Lowered to scf"
+
+    # scf dialect -> standard dialect
+    "$MLIR_OPT_BIN" "$f_scf" --allow-unregistered-dialect --convert-scf-to-cf \
+        --canonicalize --cse --sccp --symbol-dce --control-flow-sink \
+        --loop-invariant-code-motion --canonicalize > "$f_std"
+    exit_on_fail "Failed scf -> std conversion" "Lowered to std"
 
     # standard dialect -> handshake dialect
     "$DYNAMATIC_OPT_BIN" "$f_std" --allow-unregistered-dialect \
