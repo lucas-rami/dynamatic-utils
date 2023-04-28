@@ -69,23 +69,6 @@ compile () {
 	rm *.s
 
     # standard optimized LLVM IR -> elastic circuit
-    "$LLVM_OPT_BIN" \ifycfg -die \
-        -instcombine -lowerswitch $f_ir -S -o "$f_ir_opt"
-    exit_on_fail "Failed to apply standard optimization" "Applied standard optimization"
-
-    # Run frequency analysis
-	"$LLVM_CLANG_BIN" -fPIC -Xclang -load -Xclang \
-        "$FREQUENCY_COUNTER_PATH/libFrequencyCounterPass.so" -c "$f_ir_opt" \
-        -o "$f_ir_opt_obj"
-	"$LLVM_CLANG_BIN" -fPIC "$f_ir_opt_obj" \
-        "$FREQUENCY_COUNTER_PATH/log_FrequencyCounter.o"
-	./a.out
-	rm a.out
-	"$LLVM_CLANG_BIN" -Xclang -load -Xclang \
-        "$FREQUENCY_DATA_PATH/libFrequencyDataGatherPass.so" $f_ir_opt"" -S
-	rm *.s
-
-    # standard optimized LLVM IR -> elastic circuit
     "$LLVM_OPT_BIN" \
         -load "$ELASTIC_BUILD_PATH/MemElemInfo/libLLVMMemElemInfo.so" \
         -load "$ELASTIC_BUILD_PATH/ElasticPass/libElasticPass.so" \

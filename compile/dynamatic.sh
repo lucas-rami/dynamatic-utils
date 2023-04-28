@@ -21,7 +21,6 @@ check_env_variables \
     BENCHMARKS_PATH \
     POLYGEIST_PATH \
     POLYGEIST_CLANG_BIN \
-    POLYGEIST_OPT_BIN \
     MLIR_OPT_BIN \
     DYNAMATIC_OPT_BIN
 
