@@ -31,12 +31,16 @@
 *.out
 *.app
 
-# Dynamatic directory (install your own)
-dynamatic/
+# Legacy dynamatic directory (install your own)
+legacy-dynamatic/
 
-# Results directories
-benchmarks/
-out/
+# Out directory
+compile/out
+
+# Compiled benchmarks
+benchmarks/**/dynamatic
+benchmarks/**/legacy
+benchmarks/**/bridge
 
 # Build directory
 build/
