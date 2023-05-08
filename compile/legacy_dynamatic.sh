@@ -22,7 +22,7 @@ check_env_variables \
     LEGACY_DYNAMATIC_ROOT \
     LLVM_CLANG_BIN \
     LLVM_OPT_BIN \
-    BENCHMARKS_PATH
+    TESTSUITE_DYNAMATIC_PATH
 
 # Path to build folders containing legacy Dynamatic object files
 ELASTIC_BUILD_PATH="$LEGACY_DYNAMATIC_ROOT/elastic-circuits/_build"
@@ -108,7 +108,7 @@ process_benchmark () {
     echo_section "Compiling $name"
 
     # Copy benchmark from Dynamatic folder to local folder
-    copy_src "$BENCHMARKS_PATH/$name/src" "$out/$name" "$name" "cpp"
+    copy_src "$TESTSUITE_DYNAMATIC_PATH/$name/src" "$out/$name" "$name" "cpp"
     exit_on_fail "Failed to copy source files"
 
     # Compile with old Dynamatic
@@ -117,7 +117,7 @@ process_benchmark () {
     return $?
 }
 
-for name in $BENCHMARKS_PATH/*/; do
+for name in $TESTSUITE_DYNAMATIC_PATH/*/; do
     bname="$(basename $name)"
     process_benchmark "$bname"
     echo ""

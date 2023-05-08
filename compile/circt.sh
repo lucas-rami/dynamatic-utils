@@ -18,7 +18,7 @@ source ../utils.sh
 
 # Check that required environment variables exist
 check_env_variables \
-    BENCHMARKS_PATH \
+    TESTSUITE_DYNAMATIC_PATH \
     POLYGEIST_PATH \
     POLYGEIST_CLANG_BIN \
     MLIR_OPT_BIN \
@@ -88,7 +88,7 @@ process_benchmark () {
     echo_section "Compiling $name"
 
     # Copy benchmark from Dynamatic folder to local folder
-    copy_src "$BENCHMARKS_PATH/$name/src" "$out/$name" "$name" "cpp"
+    copy_src "$TESTSUITE_DYNAMATIC_PATH/$name/src" "$out/$name" "$name" "cpp"
     exit_on_fail "Failed to copy source files" ""
 
     # Compile with CIRCT
@@ -97,7 +97,7 @@ process_benchmark () {
     return $?
 }
 
-for name in $BENCHMARKS_PATH/*/; do
+for name in $TESTSUITE_DYNAMATIC_PATH/*/; do
     bname="$(basename $name)"
     process_benchmark "$bname"
     echo ""

@@ -46,7 +46,8 @@ bridge () {
     "$DYNAMATIC_OPT_BIN" "$f_handshake" --allow-unregistered-dialect \
         --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
         --handshake-insert-buffers="buffer-size=2 strategy=cycles" \
-        --handshake-infer-basic-blocks --export-dot="legacy" > /dev/null
+        --handshake-infer-basic-blocks \
+        --export-dot="legacy pretty-print=false" > /dev/null
     if [ $? -ne 0 ]; then
         # DOT gets generated in script directory, remove it 
         rm "$name.dot" 

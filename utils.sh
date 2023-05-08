@@ -5,7 +5,7 @@ exit_on_fail() {
     if [[ $? -ne 0 ]]; then
         if [[ ! -z $1 ]]; then
             echo "[FATAL] exit_on_fail: $1"
-            exit
+            exit 1
         fi
         echo -e "[FATAL] exit_on_fail: failed!"
         exit 1
@@ -23,7 +23,8 @@ echo_section() {
     echo "# ===----------------------------------------------------------------------=== #"
 }
 
-# Helper function to print status after command
+# Helper function to print status after command (returns the same value that was
+# in $? when the function was called)
 echo_status() {
     local ret=$?
     if [[ $ret -ne 0 ]]; then
@@ -60,7 +61,7 @@ copy_src () {
     local force=$5
 
     # Check whether source file already exists in local folder
-    if [[ $force -ne 1 && -f "$dst_dir/$name.c" ]]; then
+    if [[ $force -eq 0 && -f "$dst_dir/$name.c" ]]; then
         echo "[INFO] copy_src: Source exists"
         return 0
     fi
