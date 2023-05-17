@@ -2,7 +2,9 @@
 
 # ===- runner.sh - Run benchmarks through various flows --------*- Bash -*-=== #
 # 
-# TODO
+# This script facilitates the compilation/simulation of benchmarks from multiple
+# testsuites using multiple DHLS flows. Run the script with the --help flag to
+# see the list of available options.
 # 
 # ===----------------------------------------------------------------------=== #
 
@@ -14,9 +16,11 @@ source utils.sh
 
 # Check that required environment variables exist
 check_env_variables \
+    BUFFERS_BIN \
+    CIRCT_HANDSHAKE_RUNNER_BIN \
     DOT2VHDL_BIN \
     DYNAMATIC_OPT_BIN \
-    LEGACY_DYNAMATIC_ROOT
+    LEGACY_DYNAMATIC_ROOT \
     LLVM_CLANG_BIN \
     LLVM_OPT_BIN \
     MLIR_OPT_BIN \
@@ -38,21 +42,34 @@ FLOW_LEGACY="legacy"
 FLOW_BRIDGE="bridge"
 FLOW="$FLOW_DYNAMATIC"
 
-# Simulation flag
+# Flags
 SIMULATE=0
+SMART_BUFFERS=0
+NO_COMPILE=0
 
 # Explicit list of benchmarks to build
 TO_BUILD=()
 
+# Path to build folders containing legacy Dynamatic object files
+ELASTIC_BUILD_PATH="$LEGACY_DYNAMATIC_ROOT/elastic-circuits/_build"
+FREQUENCY_COUNTER_PATH="$ELASTIC_BUILD_PATH/FrequencyCounterPass"
+FREQUENCY_DATA_PATH="$ELASTIC_BUILD_PATH/FrequencyDataGatherPass"
+
 # Display list of possible options and exit.
 print_help_and_exit () {
     echo -e \
-"./$0 [options] <bench_name>*
+"$0
+    [--testsuite <suite-name>] [--flow <flow-name>] 
+    [--simulate] [--no-compile] [--smart-buffers] 
+    [<bench-name> ]...
 
 List of options:
-  --testsuite <suite name>      : run a specific testsuite (dynamatic, fpl22)
-  --flow <flow name>            : run a specific flow (dynamatic, legacy, bridge)
+  --testsuite <suite-name>      : run a specific testsuite (dynamatic [default], fpl22)
+  --flow <flow-name>            : run a specific flow (dynamatic [default], legacy, bridge)
   --simulate                    : enable VHDL simulation/verification with Modelsim
+  --no-compile                  : do not re-compile benchmarks, only use cached DOTs
+  --smart-buffers               : enable smart buffer placement (instead of stupid buffer placement)
+  <bench-name>...               : run the selected flow only on specific benchmarks from the selected testsuite   
   --help | -h                   : display this help message
 "
     exit $2
@@ -75,32 +92,36 @@ delete_c() {
 # Compile down to VHDL and simulate.
 simulate() {
     local bench_path="$1"
-    local flow_path="$bench_path/$FLOW"
     local name="$(basename $bench_path)"
-    local out="$flow_path/sim"
-
-    # Generated files
-    local f_vhdl="$flow_path/$name.vhd"
-    local f_report="$out/report.txt"
+    local out="$bench_path/$FLOW"
 
     # Generated directories
-    local sim_src_dir="$out/C_SRC"
-    local sim_vhdl_src_dir="$out/VHDL_SRC"
-    local sim_verify_dir="$out/HLS_VERIFY"
+    local sim="$out/sim"
+    local sim_src_dir="$sim/C_SRC"
+    local sim_vhdl_src_dir="$sim/VHDL_SRC"
+    local sim_verify_dir="$sim/HLS_VERIFY"
+
+    # Generated files
+    local f_vhdl="$out/$name.vhd"
+    local f_report="$sim/report.txt"
+
+    # Remove output directory if it exists and recreate it 
+    rm -rf "$sim"
+    mkdir -p "$sim"
 
     # Convert DOT graph to VHDL
-    "$DOT2VHDL_BIN" "$flow_path/$name" > /dev/null
+    "$DOT2VHDL_BIN" "$out/$name" > /dev/null
     echo_status "Failed to convert DOT to VHDL" "Converted DOT to VHDL"
     if [[ $? -ne 0 ]]; then
         return $?
     fi
 
     # Remove useless TCL files
-    rm -f "$flow_path"/*.tcl
+    rm -f "$out"/*.tcl
     
     # Create simulation directories
-    mkdir -p "$out/C_OUT" "$sim_src_dir" "$sim_verify_dir" \
-        "$out/INPUT_VECTORS" "$out/VHDL_OUT" "$sim_vhdl_src_dir"
+    mkdir -p "$sim/C_OUT" "$sim_src_dir" "$sim_verify_dir" \
+        "$sim/INPUT_VECTORS" "$sim/VHDL_OUT" "$sim_vhdl_src_dir"
     echo "[INFO] Created simulation directories"
 
     # Move VHDL module and copy VHDL components to dedicated folder
@@ -124,6 +145,60 @@ simulate() {
     return $sim_ret
 }
 
+smart_buffers() {
+    local bench_path="$1"
+    local name="$(basename $bench_path)"
+    local out="$bench_path/$FLOW"
+
+    # Generated files
+    local f_dfg_buf_dot="$out/${name}_graph_buf.dot"
+    local f_dfg_buf_png="$out/${name}_graph_buf.png"
+    local f_cfg_buf_dot="$out/${name}_bbgraph_buf.dot"
+    local f_cfg_buf_png="$out/${name}_bbgraph_buf.png"
+    local f_report="$out/buffers/report.txt"
+
+    # Generated directories
+    local buffers="$out/buffers"
+
+    # Remove output directory if it exists and recreate it 
+    rm -rf "$buffers"
+    mkdir -p "$buffers"
+
+    # Run smart buffer placement
+    echo "[INFO] Placing smart buffers"
+    "$BUFFERS_BIN" buffers -filename="$out/$name" -period=4 -model_mode=mixed \
+        -solver=gurobi_cl > $f_report
+    echo_status "Failed to place smart buffers" "Placed smart buffers"
+    if [[ $? -ne 0 ]]; then
+        rm -f *.sol *.lp *.txt 
+        return 1 
+    fi
+
+    # Move all generated files to output folder 
+    mv *.log *.sol *.lp *.txt "$buffers" > /dev/null
+
+    # Convert bufferized DFG DOT graph to PNG
+    dot -Tpng "$f_dfg_buf_dot" > "$f_dfg_buf_png"
+    echo_status "Failed to convert bufferized DFG DOT to PNG" "Converted bufferized DFG DOT to PNG"
+
+    # Convert bufferized CFG DOT graph to PNG
+    dot -Tpng "$f_cfg_buf_dot" > "$f_cfg_buf_png"
+    echo_status "Failed to convert bufferized CFG DOT to PNG" "Converted bufferized CFG DOT to PNG"
+
+    # Rename unbufferized DOTS
+    mv "$out/$name.dot" "$out/${name}_nobuf.dot" 
+    mv "$out/$name.png" "$out/${name}_nobuf.png" 
+    mv "$out/${name}_bbgraph.dot" "$out/${name}_bbgraph_nobuf.dot" 
+    mv "$out/${name}_bbgraph.png" "$out/${name}_bbgraph_nobuf.png" 
+
+    # Rename bufferized DOTs
+    mv "$f_dfg_buf_dot" "$out/$name.dot" 
+    mv "$f_dfg_buf_png" "$out/$name.png" 
+    mv "$f_cfg_buf_dot" "$out/${name}_bb_graph.dot"
+
+    return $ret
+}
+
 # Dynamatic flow.
 dynamatic () {
     local bench_path="$1"
@@ -140,7 +215,6 @@ dynamatic () {
     local f_affine_mem="$out/affine_mem.mlir"
     local f_std="$out/std.mlir"
     local f_handshake="$out/handshake.mlir"
-    local f_netlist="$out/netlist.mlir"
     local f_dot="$out/$name.dot"
     local f_png="$out/$name.png"
 
@@ -194,11 +268,6 @@ dynamatic () {
     return 0
 }
 
-# Path to build folders containing legacy Dynamatic object files
-ELASTIC_BUILD_PATH="$LEGACY_DYNAMATIC_ROOT/elastic-circuits/_build"
-FREQUENCY_COUNTER_PATH="$ELASTIC_BUILD_PATH/FrequencyCounterPass"
-FREQUENCY_DATA_PATH="$ELASTIC_BUILD_PATH/FrequencyDataGatherPass"
-
 # Legacy flow.
 legacy () {
     local bench_path="$1"
@@ -239,19 +308,21 @@ legacy () {
 	./a.out
 	rm a.out
 	"$LLVM_CLANG_BIN" -Xclang -load -Xclang \
-        "$FREQUENCY_DATA_PATH/libFrequencyDataGatherPass.so" $f_ir_opt"" -S
+        "$FREQUENCY_DATA_PATH/libFrequencyDataGatherPass.so" "$f_ir_opt" -S
 	rm *.s
 
     # standard optimized LLVM IR -> elastic circuit
+    local buffers=""
+    if [[ $SMART_BUFFERS -eq 0 ]]; then
+        buffers="-simple-buffers=true"
+    fi
     "$LLVM_OPT_BIN" \
         -load "$ELASTIC_BUILD_PATH/MemElemInfo/libLLVMMemElemInfo.so" \
         -load "$ELASTIC_BUILD_PATH/ElasticPass/libElasticPass.so" \
         -load "$ELASTIC_BUILD_PATH/OptimizeBitwidth/libLLVMOptimizeBitWidth.so" \
         -load "$ELASTIC_BUILD_PATH/MyCFGPass/libMyCFGPass.so" \
-        -polly-process-unprofitable -mycfgpass -S \
-        -simple-buffers=true -use-lsq=false \
-        "$f_ir_opt" \
-        "-cfg-outdir=$out" > /dev/null 2>&1
+        -polly-process-unprofitable -mycfgpass -S $buffers -use-lsq=false \
+        "$f_ir_opt" "-cfg-outdir=$out" > /dev/null 2>&1
 
     # Remove temporary build files
     rm *_freq.txt mapping.txt out.txt
@@ -273,7 +344,12 @@ legacy () {
     dot -Tpng "$f_dot_bb" > "$f_png_bb"
     echo_status "Failed to convert DOT (BB) to PNG" "Converted DOT (BB) to PNG"
 
-    return 0
+    local ret=$?
+    if [[ $SMART_BUFFERS -eq 1 ]]; then
+        # Run smart buffer placement pass
+        ret=$(smart_buffers "$1")
+    fi
+    return $?
 }
 
 # Bridge flow.
@@ -291,14 +367,12 @@ bridge () {
     local f_affine_mem="$out/affine_mem.mlir"
     local f_scf="$out/scf.mlir"
     local f_std="$out/std.mlir"
-    local f_cfg_dot="$out/${name}_bbgraph.dot"
-    local f_cfg_png="$out/${name}_bbgraph.png"
-    local f_llvm_ir="$out/llvm.ll"
     local f_handshake="$out/handshake.mlir"
     local f_handshake_ready="$out/handshake_ready.mlir"
-    local f_netlist="$out/netlist.mlir"
     local f_dfg_dot="$out/$name.dot"
     local f_dfg_png="$out/$name.png"
+    local f_cfg_dot="$out/${name}_bbgraph.dot"
+    local f_cfg_png="$out/${name}_bbgraph.png"
 
     # source code -> affine dialect
     local include="$POLYGEIST_PATH/llvm-project/clang/lib/Headers/"
@@ -323,23 +397,9 @@ bridge () {
         --loop-invariant-code-motion --canonicalize > "$f_std"
     exit_on_fail "Failed scf -> std conversion" "Lowered to std"
 
-    # std dialect -> CFG graph
-    "$DYNAMATIC_OPT_BIN" "$f_std" --allow-unregistered-dialect --export-cfg \
-        > /dev/null
-    echo_status "Failed to create CFG DOT" "Created CFG DOT"
-    if [ $? -ne 0 ]; then
-        rm "${name}_bbgraph.dot" 
-        exit 1
-    fi
-    mv "${name}_bbgraph.dot" "$f_cfg_dot"
-
-    # Convert DOT graph to PNG
-    dot -Tpng "$f_cfg_dot" > "$f_cfg_png"
-    exit_on_fail "Failed to convert CFG DOT to PNG" "Converted CFG DOT to PNG"
-
     # standard dialect -> handshake dialect
     "$DYNAMATIC_OPT_BIN" "$f_std" --allow-unregistered-dialect \
-        --arith-optimize-area --canonicalize --flatten-memref-row-major \
+        --arith-reduce-area --canonicalize --flatten-memref-row-major \
         --flatten-memref-calls --push-constants \
         --lower-std-to-handshake-fpga18="id-basic-blocks" \
         > "$f_handshake"
@@ -353,75 +413,123 @@ bridge () {
         "Lowered to legacy-compatible handshake"
 
     # Create DOT graph
-    "$DYNAMATIC_OPT_BIN" "$f_handshake_ready" --allow-unregistered-dialect \
-        --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
-        --handshake-insert-buffers="buffer-size=2 strategy=cycles" \
-        --handshake-infer-basic-blocks \
-        --export-dot="legacy pretty-print=false" > /dev/null
+    if [[ $SMART_BUFFERS -eq 0 ]]; then
+        "$DYNAMATIC_OPT_BIN" "$f_handshake_ready" --allow-unregistered-dialect \
+            --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
+            --handshake-insert-buffers="buffer-size=2 strategy=cycles" \
+            --handshake-infer-basic-blocks \
+            --export-dot="legacy pretty-print=false" > /dev/null
+    else
+        "$DYNAMATIC_OPT_BIN" "$f_handshake_ready" --allow-unregistered-dialect \
+            --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
+            --handshake-infer-basic-blocks \
+            --export-dot="legacy pretty-print=false" > /dev/null
+    fi
     echo_status "Failed to create DFG DOT" "Created DFG DOT"
     if [ $? -ne 0 ]; then
-        rm "${name}.dot" 
-        exit 1
+        rm "${name}.dot" 2> /dev/null 
+        return 1
     fi
     mv "$name.dot" "$f_dfg_dot"
 
     # Convert DOT graph to PNG
     dot -Tpng "$f_dfg_dot" > "$f_dfg_png"
-    exit_on_fail "Failed to convert DFG DOT to PNG" "Converted DFG DOT to PNG"
+    echo_status "Failed to convert DFG DOT to PNG" "Converted DFG DOT to PNG"
 
-    return 0
+    if [[ $SMART_BUFFERS -eq 0 ]]; then
+        return 0
+    fi
+
+    # Read function arguments from file
+    local test_input="$bench_path/src/test_input.txt"
+    local kernel_args=""
+    while read -r line
+    do
+        kernel_args="$kernel_args $line"
+    done < "$test_input"
+
+    # Create CFG graph
+    "$CIRCT_HANDSHAKE_RUNNER_BIN" "$f_std" --top-level-function="$name" \
+        $kernel_args > /dev/null
+    echo_status "Failed to create CFG DOT" "Created CFG DOT"
+    if [ $? -ne 0 ]; then
+        rm "${name}_bbgraph.dot" 2> /dev/null
+        exit 1
+    fi
+    mv "${name}_bbgraph.dot" "$f_cfg_dot"
+
+    # Convert DOT graph to PNG
+    dot -Tpng "$f_cfg_dot" > "$f_cfg_png"
+    exit_on_fail "Failed to convert CFG DOT to PNG" "Converted CFG DOT to PNG"
+
+    # Run smart buffer pass
+    smart_buffers "$1"
+    return $?
+}
+
+simulate_wrap() {
+    if [[ $SIMULATE -eq 1 ]]; then
+        if [[ $FLOW == $FLOW_DYNAMATIC ]]; then
+            echo "[WARN] Simulation is not yet supported on the dynamatic flow"
+        else
+            # Simulate the design
+            simulate "$1"
+            if [[ $? -eq 0 ]]; then
+                echo "[INFO] Simulation succeeded!"
+            else
+                echo "[ERROR] Simulation failed!"
+            fi
+        fi
+    fi
 }
 
 # Run the specified flow for a benchmark.
-benchmark () {
+benchmark() {
     local bench_path=$1
     local name="$(basename $path)"
 
-    echo_section "Compiling $name"
+    echo_section "Benchmarking $name"
 
     # Check that a source file exists at the expected location
     local src_path="$bench_path/src/$name.cpp"
     if [[ ! -f "$src_path" ]]; then
         echo "[ERROR] No source file exists at \"$src_path\", skipping this benchmark."
     else
-        local compile_ret=1
-
-        # Run the appropriate compile flow
-        cpp_to_c "$bench_path"
-        case "$FLOW" in 
-            $FLOW_DYNAMATIC)
-                dynamatic "$bench_path"
-                compile_ret=$?
-            ;;
-            $FLOW_LEGACY)
-                legacy "$bench_path"
-                compile_ret=$?
-            ;;
-            $FLOW_BRIDGE)
-                bridge "$bench_path"
-                compile_ret=$?
-            ;;
-        esac
-        delete_c "$bench_path"
         
-        if [[ $compile_ret -eq 0 ]]; then
-            echo "[INFO] Compilation succeeded!"
-            if [[ $SIMULATE -eq 1 ]]; then
-                if [[ $FLOW == $FLOW_DYNAMATIC ]]; then
-                    echo "[INF0] Simulation is not yet supported on the dynamatic flow"
-                else
-                    # Simulate the design
-                    echo ""
-                    simulate "$bench_path"
-                    if [[ $? -eq 0 ]]; then
-                        echo "[INFO] Simulation succeeded!"
-                    else
-                        echo "[ERROR] Simulation failed!"
-                    fi
-                fi
+        if [[ NO_COMPILE -eq 0 ]]; then
+            local compile_ret=1
+
+            # Run the appropriate compile flow
+            cpp_to_c "$bench_path"
+            case "$FLOW" in 
+                $FLOW_DYNAMATIC)
+                    dynamatic "$bench_path"
+                    compile_ret=$?
+                ;;
+                $FLOW_LEGACY)
+                    legacy "$bench_path"
+                    compile_ret=$?
+                ;;
+                $FLOW_BRIDGE)
+                    bridge "$bench_path"
+                    compile_ret=$?
+                ;;
+            esac
+            delete_c "$bench_path"
+            
+            if [[ $compile_ret -eq 0 ]]; then
+                echo "[INFO] Compilation succeeded!"
+                echo ""
+                simulate_wrap "$1"
+            else
+                echo "[ERROR] Compilation failed!"
             fi
-        else
-            echo "[ERROR] Compilation failed!"
+        elif [[ $SIMULATE -ne 0 ]]; then
+            if [[ -f "$bench_path/$FLOW/$name.dot" ]]; then
+                simulate_wrap "$1"
+            else
+                echo "[WARN] DOT file does not exist, skipping simulation"
+            fi
         fi
     fi
     echo ""
@@ -442,11 +550,8 @@ do
                 TESTSUITE_PATH="$TESTSUITE_FPL22_PATH"
                 ;;
             *)
-                echo "Unknown testsuite \"$arg\", choices are"
-                echo "  1. dynamatic (default)"
-                echo "  2. fpl22"
-                echo "Aborting"
-                exit 1
+                echo "Unknown testsuite \"$arg\", printing help and exiting"
+                print_help_and_exit
                 ;;
         esac
         echo "[INFO] Setting testsuite to \"$arg\""
@@ -465,12 +570,8 @@ do
                 FLOW="$FLOW_BRIDGE"
                 ;;
             *)
-                echo "Unknown flow \"$arg\", choices are"
-                echo "  1. dynamatic (default)"
-                echo "  2. legacy"
-                echo "  3. bridge"
-                echo "Aborting"
-                exit 1
+                echo "Unknown flow \"$arg\", printing help and exiting"
+                print_help_and_exit
                 ;;
         esac
         echo "[INFO] Setting flow to \"$arg\""
@@ -489,11 +590,23 @@ do
                 SIMULATE=1
                 echo "[INFO] Enabling simulation"
                 ;;
+             "--no-compile")
+                NO_COMPILE=1
+                echo "[INFO] Skipping compilation, will use cached DOTs only"
+                ;;
+             "--smart-buffers")
+                SMART_BUFFERS=1
+                echo "[INFO] Using smart buffers"
+                ;;
             "--help" | "-h")
                 echo "[INFO] Printing help"
-                print_help_and_exit $0
+                print_help_and_exit
                 ;;
             *)
+                if [[ $arg == -* ]]; then
+                    echo "[ERROR] Unknown option \"$arg\", printing help and exiting"
+                    print_help_and_exit
+                fi
                 TO_BUILD+=("$arg")
                 echo "[INFO] Registering benchmark \"$arg\" in the build list"
                 ;;
