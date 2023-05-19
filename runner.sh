@@ -44,6 +44,7 @@ FLOW="$FLOW_DYNAMATIC"
 
 # Flags
 SIMULATE=0
+SYNTHESIZE=0
 SMART_BUFFERS=0
 NO_COMPILE=0
 
@@ -60,15 +61,17 @@ print_help_and_exit () {
     echo -e \
 "$0
     [--testsuite <suite-name>] [--flow <flow-name>] 
-    [--simulate] [--no-compile] [--smart-buffers] 
+    [--no-compile] [--smart-buffers] [--simulate] [--synthesize]
+    [--help|-h] 
     [<bench-name> ]...
 
 List of options:
   --testsuite <suite-name>      : run a specific testsuite (dynamatic [default], fpl22)
   --flow <flow-name>            : run a specific flow (dynamatic [default], legacy, bridge)
-  --simulate                    : enable VHDL simulation/verification with Modelsim
   --no-compile                  : do not re-compile benchmarks, only use cached DOTs
   --smart-buffers               : enable smart buffer placement (instead of stupid buffer placement)
+  --simulate                    : enable VHDL simulation/verification with Modelsim
+  --synthesize                  : enable VHDL synthesization with Vivado
   <bench-name>...               : run the selected flow only on specific benchmarks from the selected testsuite   
   --help | -h                   : display this help message
 "
@@ -96,18 +99,18 @@ simulate() {
     local out="$bench_path/$FLOW"
 
     # Generated directories
-    local sim="$out/sim"
-    local sim_src_dir="$sim/C_SRC"
-    local sim_vhdl_src_dir="$sim/VHDL_SRC"
-    local sim_verify_dir="$sim/HLS_VERIFY"
+    local sim_dir="$out/sim"
+    local sim_src_dir="$sim_dir/C_SRC"
+    local sim_vhdl_src_dir="$sim_dir/VHDL_SRC"
+    local sim_verify_dir="$sim_dir/HLS_VERIFY"
 
     # Generated files
     local f_vhdl="$out/$name.vhd"
-    local f_report="$sim/report.txt"
+    local f_report="$sim_dir/report.txt"
 
-    # Remove output directory if it exists and recreate it 
-    rm -rf "$sim"
-    mkdir -p "$sim"
+    # Remove output directories if they exist and recreate them 
+    rm -rf "$sim_dir"
+    mkdir -p "$sim_dir"
 
     # Convert DOT graph to VHDL
     "$DOT2VHDL_BIN" "$out/$name" > /dev/null
@@ -120,22 +123,19 @@ simulate() {
     rm -f "$out"/*.tcl
     
     # Create simulation directories
-    mkdir -p "$sim/C_OUT" "$sim_src_dir" "$sim_verify_dir" \
-        "$sim/INPUT_VECTORS" "$sim/VHDL_OUT" "$sim_vhdl_src_dir"
-    echo "[INFO] Created simulation directories"
-
+    mkdir -p "$sim_dir/C_OUT" "$sim_src_dir" "$sim_verify_dir" \
+        "$sim_dir/INPUT_VECTORS" "$sim_dir/VHDL_OUT" "$sim_vhdl_src_dir"
+    
     # Move VHDL module and copy VHDL components to dedicated folder
     mv "$f_vhdl" "$sim_vhdl_src_dir"
     cp "$LEGACY_DYNAMATIC_ROOT"/components/*.vhd "$sim_vhdl_src_dir"
-    echo "[INFO] Copied VHDL components to VHDL_SRC directory"
 
     # Copy sources to dedicated folder
     cp "$bench_path/src/$name.cpp" "$sim_src_dir/$name.c" 
     cp "$bench_path/src/$name.h" "$sim_src_dir"
-    echo "[INFO] Copied source to C_SRC directory"
 
     # Simulate and verify design
-    echo "[INFO] Launching simulation"
+    echo "[INFO] Launching Modelsim simulation"
     cd "$sim_verify_dir"
     "$LEGACY_DYNAMATIC_ROOT/Regression_test/hls_verifier/HlsVerifier/build/hlsverifier" \
          cover -aw32 "$sim_src_dir/$name.c" "$sim_src_dir/$name.c" $name \
@@ -143,6 +143,85 @@ simulate() {
     local sim_ret=$?
     cd - > /dev/null
     return $sim_ret
+}
+
+gen_synth_script() {
+    local bench_path="$1"
+    local name="$(basename $bench_path)"
+    local out="$bench_path/$FLOW"
+    local synth_dir="$out/synth"
+
+    # Generated files
+    local f_script="$synth_dir/synthesize.tcl"
+    local f_period="$synth_dir/period_4.xdc"
+    local f_utilization_syn="$synth_dir/utilization_post_syn.rpt"
+    local f_timing_syn="$synth_dir/timing_post_syn.rpt"
+    local f_utilization_pr="$synth_dir/utilization_post_pr.rpt"
+    local f_timing_pr="$synth_dir/timing_post_pr.rpt"
+
+    echo -e \
+"set_param general.maxThreads 8
+read_vhdl -vhdl2008 [glob $synth_dir/hdl/*.vhd]
+read_xdc "$f_period"
+synth_design -top $name -part xc7k160tfbg484-2 -no_iobuf -mode out_of_context
+report_utilization > $f_utilization_syn
+report_timing > $f_timing_syn
+opt_design
+place_design
+phys_opt_design
+route_design
+phys_opt_design
+report_utilization > $f_utilization_pr
+report_timing > $f_timing_pr
+exit" > "$f_script"
+
+    echo -e \
+"create_clock -name clk -period 4.000 -waveform {0.000 2.000} [get_ports clk]
+set_property HD.CLK_SRC BUFGCTRL_X0Y0 [get_ports clk]
+
+#set_input_delay 0 -clock CLK  [all_inputs]
+#set_output_delay 0 -clock CLK [all_outputs]" > "$f_period"
+
+    return 0
+}
+
+synthesize() {
+    local bench_path="$1"
+    local name="$(basename $bench_path)"
+    local out="$bench_path/$FLOW"
+
+    # Generated directories
+    local synth_dir="$out/synth"
+    local hdl_dir="$synth_dir/hdl"
+
+    # Generated files
+    local f_tcl="$synth_dir/synthesize.tcl"
+
+    # Remove output directory if it exists and recreate it 
+    rm -rf "$synth_dir"
+    mkdir -p "$synth_dir"
+
+    # Convert DOT graph to VHDL
+    "$DOT2VHDL_BIN" "$out/$name" > /dev/null
+    echo_status "Failed to convert DOT to VHDL" "Converted DOT to VHDL"
+    if [[ $? -ne 0 ]]; then
+        return $?
+    fi
+
+    # Copy all synthesizable components to specific folder for Vivado
+    mkdir -p "$hdl_dir"
+    mv "$out/$name.vhd" "$hdl_dir"
+    cp "$LEGACY_DYNAMATIC_ROOT"/components/*.vhd "$hdl_dir"
+
+    # Generate synthesization scripts
+    gen_synth_script $1
+    exit_on_fail "Failed to create synthesization scripts" "Created synthesization scripts"
+
+    echo "[INFO] Launching Vivado synthesization"
+    vivado -mode tcl -source "$f_tcl" > /dev/null
+    local ret=$?
+    rm -f *.jou *.log
+    return $ret
 }
 
 smart_buffers() {
@@ -467,26 +546,92 @@ bridge () {
     return $?
 }
 
-simulate_wrap() {
-    if [[ $SIMULATE -eq 1 ]]; then
-        if [[ $FLOW == $FLOW_DYNAMATIC ]]; then
-            echo "[WARN] Simulation is not yet supported on the dynamatic flow"
-        else
-            # Simulate the design
-            simulate "$1"
-            if [[ $? -eq 0 ]]; then
-                echo "[INFO] Simulation succeeded!"
-            else
-                echo "[ERROR] Simulation failed!"
-            fi
-        fi
+compile_wrap() {    
+    if [[ $NO_COMPILE -ne 0 ]]; then
+        return 0
     fi
+
+    # Run the appropriate compile flow
+    cpp_to_c "$1"
+    case "$FLOW" in 
+        $FLOW_DYNAMATIC)
+            dynamatic "$1"
+        ;;
+        $FLOW_LEGACY)
+            legacy "$1"
+        ;;
+        $FLOW_BRIDGE)
+            bridge "$1"
+        ;;
+    esac
+    local ret=$?
+    delete_c "$1"
+    
+    echo_status_arg $ret "Compilation failed!" "Compilation succeeded!"
+    echo ""
+    return $ret
+}
+
+simulate_wrap() {
+    local bench_path="$1"
+    local name="$(basename $bench_path)"
+
+    if [[ $SIMULATE -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ ! -f "$bench_path/$FLOW/$name.dot" ]]; then
+        echo "[ERROR] DOT file does not exist, skipping simulation"
+        echo ""
+        return 1
+    fi
+    
+    if [[ $FLOW == $FLOW_DYNAMATIC ]]; then
+        echo "[ERROR] Simulation is not yet supported on the dynamatic flow"
+        echo ""
+        return 1
+    fi
+
+    # Simulate the design
+    simulate "$1"
+    local ret=$?
+
+    echo_status_arg $ret "Simulation failed!" "Simulation succeeded!"
+    echo ""
+    return $ret
+}
+
+synthesize_wrap() {
+    local bench_path="$1"
+    local name="$(basename $bench_path)"
+
+    if [[ $SYNTHESIZE -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ ! -f "$bench_path/$FLOW/$name.dot" ]]; then
+        echo "[ERROR] DOT file does not exist, skipping synthesization"
+        return 1
+    fi
+    
+    if [[ $FLOW == $FLOW_DYNAMATIC ]]; then
+        echo "[ERROR] Synthesization is not yet supported on the dynamatic flow"
+        return 1
+    fi
+
+    # Synthesize the design
+    synthesize "$1"
+    local ret=$?
+
+    echo_status_arg $ret "Synthesization failed!" "Synthesization succeeded!"
+    echo ""
+    return $ret
 }
 
 # Run the specified flow for a benchmark.
 benchmark() {
     local bench_path=$1
-    local name="$(basename $path)"
+    local name="$(basename $bench_path)"
 
     echo_section "Benchmarking $name"
 
@@ -494,43 +639,10 @@ benchmark() {
     local src_path="$bench_path/src/$name.cpp"
     if [[ ! -f "$src_path" ]]; then
         echo "[ERROR] No source file exists at \"$src_path\", skipping this benchmark."
-    else
-        
-        if [[ NO_COMPILE -eq 0 ]]; then
-            local compile_ret=1
-
-            # Run the appropriate compile flow
-            cpp_to_c "$bench_path"
-            case "$FLOW" in 
-                $FLOW_DYNAMATIC)
-                    dynamatic "$bench_path"
-                    compile_ret=$?
-                ;;
-                $FLOW_LEGACY)
-                    legacy "$bench_path"
-                    compile_ret=$?
-                ;;
-                $FLOW_BRIDGE)
-                    bridge "$bench_path"
-                    compile_ret=$?
-                ;;
-            esac
-            delete_c "$bench_path"
-            
-            if [[ $compile_ret -eq 0 ]]; then
-                echo "[INFO] Compilation succeeded!"
-                echo ""
-                simulate_wrap "$1"
-            else
-                echo "[ERROR] Compilation failed!"
-            fi
-        elif [[ $SIMULATE -ne 0 ]]; then
-            if [[ -f "$bench_path/$FLOW/$name.dot" ]]; then
-                simulate_wrap "$1"
-            else
-                echo "[WARN] DOT file does not exist, skipping simulation"
-            fi
-        fi
+    else        
+        compile_wrap "$1"
+        simulate_wrap "$1"
+        synthesize_wrap "$1"
     fi
     echo ""
 }
@@ -589,6 +701,10 @@ do
             "--simulate")
                 SIMULATE=1
                 echo "[INFO] Enabling simulation"
+                ;;
+             "--synthesize")
+                SYNTHESIZE=1
+                echo "[INFO] Enabling synthesization"
                 ;;
              "--no-compile")
                 NO_COMPILE=1

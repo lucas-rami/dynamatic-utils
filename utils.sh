@@ -37,6 +37,20 @@ echo_status() {
     return $ret
 }
 
+# Helper function to print status depending on a return value passed as argument
+# (returns the same value that was in $1)
+echo_status_arg() {
+    local ret=$1
+    if [[ $ret -ne 0 ]]; then
+        echo -e "[ERROR] $2"
+    else
+        if [[ ! -z $2 ]]; then
+            echo -e "[INFO] $3"
+        fi
+    fi
+    return $ret
+}
+
 check_env_variables () {
     echo_section "Checking environment variables"
     for env_var in "$@"; do
