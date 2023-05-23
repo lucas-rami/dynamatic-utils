@@ -6,11 +6,12 @@ from bokeh.io import output_file, save
 from bokeh.models import ColumnDataSource, FactorRange
 from bokeh.plotting import figure
 from bokeh.transform import dodge
-from bokeh.layouts import column, LayoutDOM, row
+from bokeh.layouts import column, row
+from bokeh.models import LayoutDOM
 from bokeh.colors import RGB
 from bokeh.models.ranges import Range1d
-from bokeh.models.layouts import Panel, Tabs
-from bokeh.plotting.figure import Figure
+from bokeh.models.layouts import TabPanel, Tabs
+from bokeh.plotting import figure
 
 # Local
 from .parser import BenchStats, IRType, Stats, InstructionStats, IRStats
@@ -34,8 +35,7 @@ def boxplot(
     data: Dict[str, np.ndarray],
     fig_args: BokehParams = None,
     boxplot_args: Optional[BoxPlotParams] = None,
-) -> Figure:
-
+) -> figure:
     if fig_args is None:
         fig_args = {}
     if boxplot_args is None:
@@ -164,7 +164,6 @@ def compare_scalar_pair(
     paths: Tuple[IRType, IRType],
     nest: int = 0,
 ) -> LayoutDOM:
-
     path0 = __PATH_INFO[paths[0]]
     path1 = __PATH_INFO[paths[1]]
 
@@ -185,10 +184,10 @@ def compare_scalar_pair(
             path1.name: [f_stats(path1.stats(s)) for s in stats.values()],
         }
     )
-    max_y = (
+    max_y: int = (
         max(
-            max(src_abs.data[path0.name]),
-            max(src_abs.data[path1.name]),
+            max(src_abs.data[path0.name]),  # type: ignore
+            max(src_abs.data[path1.name]),  # type: ignore
         )
         + 1
     )
@@ -258,7 +257,7 @@ def compare_scalar_pair(
         }
     )
 
-    max_val = max([abs(c) for c in src_rel.data["counts"]])
+    max_val: int = max([abs(c) for c in src_rel.data["counts"]])  # type: ignore
 
     fig_rel = figure(
         x_range=fig_abs.x_range,
@@ -299,7 +298,6 @@ def compare_scalar_pair(
 def compare_scalar(
     stats: Stats, f_stats: Callable[[IRStats], int], nest: int = 0, opt: bool = False
 ) -> LayoutDOM:
-
     fig_height = (__HEIGHT_SCREEN - nest * __HEIGHT_TAB) // 2
     fig_args = {
         "width": __WIDTH_SCREEN - __WIDTH_BOXPLOT,
@@ -320,14 +318,15 @@ def compare_scalar(
             ],
         }
     )
-    max_y = (
+    max_y: int = (
         max(
-            max(src_abs.data[__LLVM]),
-            max(src_abs.data[__MLIR]),
-            max(src_abs.data[__MLIR_OPT]) if opt else 0,
+            max(src_abs.data[__LLVM]),  # type: ignore
+            max(src_abs.data[__MLIR]),  # type: ignore
+            max(src_abs.data[__MLIR_OPT]) if opt else 0,  # type: ignore
         )
         + 1
     )
+
     fig_abs = figure(
         x_range=FactorRange(*src_abs.data["benchmarks"], bounds="auto"),
         y_range=Range1d(0, max_y),
@@ -419,15 +418,12 @@ def compare_scalar(
         }
     )
 
-    max_val = max(
-        (
-            max([abs(c) for c in src_rel.data["counts"]]),
-            max([abs(c) for c in src_rel_opt.data["counts"]]) if opt else 0,
-        )
+    max_val: int = max(
+        max([abs(c) for c in src_rel.data["counts"]]),  # type: ignore
+        max([abs(c) for c in src_rel_opt.data["counts"]]) if opt else 0,  # type: ignore
     )
 
-    def create_fig_rel(src: ColumnDataSource, path: str) -> Figure:
-
+    def create_fig_rel(src: ColumnDataSource, path: str) -> figure:
         fig = figure(
             x_range=fig_abs.x_range,
             y_range=Range1d(-max_val - 1, max_val + 1),
@@ -486,12 +482,12 @@ def compare_scalar(
 def compare_instruction_types(
     stats: Stats, paths: Tuple[IRType, IRType], nest: int = 0
 ) -> Tabs:
-    panels: List[Panel] = []
+    panels: List[TabPanel] = []
     for instr_type in sorted(InstructionStats.all_instr_types):
         layout = compare_scalar_pair(
             stats, lambda s: s.instructions.counts_per_type[instr_type], paths, nest + 1
         )
-        panels.append(Panel(child=layout, title=instr_type))
+        panels.append(TabPanel(child=layout, title=instr_type))
 
     return Tabs(tabs=panels)
 
