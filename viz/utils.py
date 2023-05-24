@@ -1,15 +1,13 @@
 # Libraries
 import numpy as np
 import pandas as pd
-from sys import argv
 from math import floor, pi
 from dataclasses import dataclass, field
-from scipy.stats import distributions  # type: ignore
 from bokeh.plotting import figure
 from bokeh.layouts import column, layout, row
 from bokeh.io import save, output_file
 from bokeh.colors import RGB
-from bokeh.transform import factor_cmap
+from bokeh.transform import factor_cmap, dodge
 from bokeh.models.annotations import ColorBar, LabelSet
 from bokeh.models.formatters import PrintfTickFormatter
 from bokeh.models.mappers import LinearColorMapper
@@ -21,18 +19,7 @@ from bokeh.plotting import figure
 from bokeh.core.has_props import HasProps
 
 # Typing
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Final,
-    List,
-    Mapping,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
-)
+from typing import Any, Callable, Final, Mapping, Optional, Sequence, Tuple, Union
 
 
 COLORS: Final[Sequence[RGB]] = [
@@ -46,25 +33,10 @@ COLORS: Final[Sequence[RGB]] = [
     RGB(167, 117, 77),  # brown
 ]
 
-SPRING_COLOR: Final[Mapping[str, str]] = {
-    "yellow": "gold",
-    "green": "forestgreen",
-    "blue": "royalblue",
-    "brown": "saddlebrown",
-    "red": "crimson",
-    "purple": "purple",
-}
-
-GOAT_COLOR: Final[Mapping[str, str]] = {
-    "baby": "navajowhite",
-    "mama": "lightgray",
-    "papa": "dimgray",
-}
-
 SCREEN_W: Final[int] = 2500  # 2100
 SCREEN_H: Final[int] = 1100
 
-_Params = Optional[Dict[str, Any]]
+_Params = Mapping[str, Any] | None
 
 
 def barchart(
@@ -147,7 +119,7 @@ def barchart(
 
 
 def cat_barchart(
-    data: Dict[str, int],
+    data: dict[str, int],
     fig_args: _Params = None,
     vbar_args: _Params = None,
 ) -> figure:
@@ -186,57 +158,101 @@ def cat_barchart(
 
 
 def nested_barchart(
-    categories: Sequence[str],
-    data: Dict[str, np.ndarray],
+    top_labels: Sequence[str],
+    nested_labels: Sequence[str],
+    data: Mapping[str, np.ndarray],
+    positive: bool = True,
     fig_args: _Params = None,
     vbar_args: _Params = None,
 ) -> figure:
-    # Arguments dictionaries
+    # Argument dictionaries
     if fig_args is None:
         fig_args = {}
     if vbar_args is None:
         vbar_args = {}
 
-    if len(categories) == 0 or len(data) == 0:
+    # Check that arguments are valid
+    if len(top_labels) == 0:
+        raise ValueError("Number of top labels must be greater than 0")
+    if len(nested_labels) == 0:
+        raise ValueError("Number of nested labels must be greater than 0")
+    if len(nested_labels) != len(data):
+        raise ValueError(
+            f"Number of keys in data must be the same as number of nested labels. "
+            f"Expected {len(nested_labels)} but got {len(data)}."
+        )
+    if not all((len(top_labels) == len(heights) for heights in data.values())):
+        raise ValueError(
+            "Length of array at each key of data argument must equal the number of "
+            "top labels."
+        )
+
+    src = ColumnDataSource({"factors": top_labels, **data})
+
+    all_heights = np.zeros(
+        (len(nested_labels), len(top_labels)), dtype=data[nested_labels[0]].dtype
+    )
+    for i, heights in enumerate(data.values()):
+        all_heights[i] = heights
+    max_height = np.max(all_heights)
+
+    if positive and max_height == 0.0:
         return missing_data(fig_args)
 
-    x = [(s, d) for s in categories for d in data]
-    counts = sum(zip(*list(data.values())), ())
-    src = ColumnDataSource(data=dict(x=x, counts=counts))
+    y_range: Range1d
+    if positive:
+        y_range = Range1d(0, max_height)
+    else:
+        min_height = np.min(all_heights)
+        max_abs_height = np.max([np.abs(min_height), np.abs(max_height)])
+        y_range = Range1d(-max_abs_height, max_abs_height)
 
     # Draw figure
     fig_base_args = {
-        "x_range": FactorRange(*x),
+        "x_range": FactorRange(*top_labels),
         "tools": "save",
         "toolbar_location": "above",
-        "y_range": Range1d(0, np.max(counts)),
+        "y_range": y_range,
     }
     fig = figure(**{**fig_base_args, **fig_args})
 
-    # Draw vertical bars
-    vbar_base_args = {
-        "x": "x",
-        "top": "counts",
-        "width": 0.9,
-        "source": src,
-        "line_color": "white",
-        "fill_color": factor_cmap(
-            "x", palette=COLORS, factors=list(data), start=1, end=2
-        ),
-    }
-    fig.vbar(**{**vbar_base_args, **vbar_args})
+    # Compute width and dodge value for each bar
+    space_between_bars = 0.05
+    space_outside_bars = 0.15
+    bar_width = (
+        1 - ((len(nested_labels) - 1) * space_between_bars) - (2 * space_outside_bars)
+    ) / len(nested_labels)
+    dodge_value = -0.5 + space_outside_bars + bar_width / 2
+
+    # Draw all bars
+    for i, label in enumerate(nested_labels):
+        vbar_base_args = {
+            "x": dodge("factors", dodge_value, range=fig.x_range),
+            "top": label,
+            "source": src,
+            "width": bar_width,
+            "color": COLORS[i],
+            "line_color": "white",
+            "legend_label": label,
+        }
+        fig.vbar(**{**vbar_base_args, **vbar_args})
+        dodge_value += space_between_bars + bar_width
+
+    fig.x_range.range_padding = 0.1
+    fig.xgrid.grid_line_color = None
+    fig.legend.location = "top_left"
+    fig.legend.orientation = "horizontal"
+
     return fig
 
 
 def missing_data(fig_args: _Params = None) -> figure:
     if fig_args is None:
         fig_args = {}
-    assert fig_args is not None
 
     fig_base_args = {
         "x_range": Range1d(0.0, 1.0),
         "y_range": Range1d(0.0, 1.0),
-        "title": "Missing data",
         "tools": "",
         "toolbar_location": "above",
     }
@@ -248,7 +264,7 @@ def missing_data(fig_args: _Params = None) -> figure:
 
 
 def linechart(
-    data: Dict[str, Union[Sequence[float], Sequence[Sequence[float]]]],
+    data: dict[str, Union[Sequence[float], Sequence[Sequence[float]]]],
     fig_args: _Params = None,
     line_args: _Params = None,
     varea_args: _Params = None,
@@ -328,15 +344,15 @@ def linechart(
 
 @dataclass
 class BoxPlotParams:
-    upper_box: Dict[str, Any] = field(default_factory=dict)
-    lower_box: Dict[str, Any] = field(default_factory=dict)
-    stems: Dict[str, Any] = field(default_factory=dict)
-    whiskers: Dict[str, Any] = field(default_factory=dict)
-    outliers: Dict[str, Any] = field(default_factory=dict)
+    upper_box: dict[str, Any] = field(default_factory=dict)
+    lower_box: dict[str, Any] = field(default_factory=dict)
+    stems: dict[str, Any] = field(default_factory=dict)
+    whiskers: dict[str, Any] = field(default_factory=dict)
+    outliers: dict[str, Any] = field(default_factory=dict)
 
 
 def boxplot(
-    data: Dict[str, np.ndarray],
+    data: dict[str, np.ndarray],
     fig_args: _Params = None,
     boxplot_args: Optional[BoxPlotParams] = None,
 ) -> figure:
@@ -367,8 +383,8 @@ def boxplot(
         "upper": np.empty(n_cats),
         "lower": np.empty(n_cats),
     }
-    outliers_x: List[str] = []
-    outliers_y: List[float] = []
+    outliers_x: list[str] = []
+    outliers_y: list[float] = []
 
     def gen_stats(i: int, cat: str):
         serie = data[cat]
@@ -473,9 +489,9 @@ _TXT_COLOR: Final[str] = "color"
 
 @dataclass
 class HeatMapParams:
-    mapper: Dict[str, Any] = field(default_factory=dict)
-    rect: Dict[str, Any] = field(default_factory=dict)
-    colorbar: Dict[str, Any] = field(default_factory=dict)
+    mapper: dict[str, Any] = field(default_factory=dict)
+    rect: dict[str, Any] = field(default_factory=dict)
+    colorbar: dict[str, Any] = field(default_factory=dict)
     display_colorbar: bool = True
 
 
@@ -624,8 +640,7 @@ def disable_movement(fig: figure) -> None:
 
 
 def simple_grid(figures: list[list[figure]], filepath: str, title: str) -> None:
-    rows = [row(*figs) for figs in figures]
-    save_to_disk(layout(*rows), filepath, title)
+    save_to_disk(layout(figures), filepath, title)  # type: ignore
 
 
 def simple_column(figures: Sequence[figure], filepath: str, title: str) -> None:
