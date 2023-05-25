@@ -36,16 +36,16 @@ COLORS: Final[Sequence[RGB]] = [
 SCREEN_W: Final[int] = 2500  # 2100
 SCREEN_H: Final[int] = 1100
 
-_Params = Mapping[str, Any] | None
+BokehParams = Mapping[str, Any] | None
 
 
 def barchart(
     data: np.ndarray,
     best_norm_fit: bool = False,
     bin_size: Optional[int] = None,
-    fig_args: _Params = None,
-    vbar_args: _Params = None,
-    line_args: _Params = None,
+    fig_args: BokehParams = None,
+    vbar_args: BokehParams = None,
+    line_args: BokehParams = None,
 ) -> figure:
     # Arguments dictionaries
     if fig_args is None:
@@ -120,8 +120,8 @@ def barchart(
 
 def cat_barchart(
     data: dict[str, int],
-    fig_args: _Params = None,
-    vbar_args: _Params = None,
+    fig_args: BokehParams = None,
+    vbar_args: BokehParams = None,
 ) -> figure:
     # Arguments dictionaries
     if fig_args is None:
@@ -162,8 +162,8 @@ def nested_barchart(
     nested_labels: Sequence[str],
     data: Mapping[str, np.ndarray],
     positive: bool = True,
-    fig_args: _Params = None,
-    vbar_args: _Params = None,
+    fig_args: BokehParams = None,
+    vbar_args: BokehParams = None,
 ) -> figure:
     # Argument dictionaries
     if fig_args is None:
@@ -246,7 +246,7 @@ def nested_barchart(
     return fig
 
 
-def missing_data(fig_args: _Params = None) -> figure:
+def missing_data(fig_args: BokehParams = None) -> figure:
     if fig_args is None:
         fig_args = {}
 
@@ -265,9 +265,9 @@ def missing_data(fig_args: _Params = None) -> figure:
 
 def linechart(
     data: dict[str, Union[Sequence[float], Sequence[Sequence[float]]]],
-    fig_args: _Params = None,
-    line_args: _Params = None,
-    varea_args: _Params = None,
+    fig_args: BokehParams = None,
+    line_args: BokehParams = None,
+    varea_args: BokehParams = None,
 ) -> figure:
     if fig_args is None:
         fig_args = {}
@@ -353,7 +353,7 @@ class BoxPlotParams:
 
 def boxplot(
     data: dict[str, np.ndarray],
-    fig_args: _Params = None,
+    fig_args: BokehParams = None,
     boxplot_args: Optional[BoxPlotParams] = None,
 ) -> figure:
     if fig_args is None:
@@ -498,7 +498,7 @@ class HeatMapParams:
 def heatmap(
     df: Union[pd.DataFrame, Sequence[Tuple[str, str, float]]],
     font_size: str = "16px",
-    fig_args: _Params = None,
+    fig_args: BokehParams = None,
     heatmap_args: Optional[HeatMapParams] = None,
 ) -> figure:
     if fig_args is None:
