@@ -6,10 +6,12 @@ import numpy as np
 from dataclasses import dataclass
 from enum import Enum
 from bokeh.layouts import layout, row, column
+from bokeh.models import Row
 from bokeh.models.layouts import TabPanel, Tabs
 from bokeh.plotting import figure, show
 
 # Local
+import dot_parser
 from utils import BokehParams, nested_barchart, save_to_disk
 
 # Typing
@@ -82,6 +84,161 @@ class DataInfo(Generic[DataStorage]):
 
 
 @dataclass(frozen=True)
+class DotData:
+    counts: Final[Mapping["DotData.ComponentType", int]]
+
+    @classmethod
+    def from_file(cls: Type[Self], filepath: str) -> Self:
+        counts: dict[DotData.ComponentType, int] = {}
+
+        with open(filepath, "r") as report:
+            while line := report.readline():
+                line = line.strip()
+                if not dot_parser.is_node(line):
+                    continue
+                attributes = dot_parser.get_attributes(line)
+                if (typeAttr := attributes.get("type", None)) is not None:
+                    comp: DotData.ComponentType | None = None
+                    if typeAttr == "Operator":
+                        if (opAttr := attributes.get("op", None)) is not None:
+                            comp = _DECODE_COMPONENT_TYPE.get(opAttr, None)
+                    else:
+                        comp = _DECODE_COMPONENT_TYPE.get(typeAttr, None)
+                    if comp is not None:
+                        counts[comp] = counts.get(comp, 0) + 1
+                    else:
+                        raise ValueError(
+                            f"Found unknown component in DOT\n\tIn: {line}"
+                        )
+
+        return DotData(counts)
+
+    class ComponentType(Enum):
+        # Dataflow components
+        ENTRY = "Entry"
+        CONTROL_MERGE = "CntrlMerge"
+        MERGE = "Merge"
+        MUX = "Mux"
+        BRANCH = "Branch"
+        BUFFER = "Buffer"
+        MEMORY_CONTROLLER = "MC"
+        Fork = "Fork"
+        SOURCE = "Source"
+        SINK = "Sink"
+        CONSTANT = "Constant"
+        EXIT = "Exit"
+        LOAD = "mc_load_op"
+        STORE = "mc_store_op"
+        RETURN = "ret_op"
+        # Arithmetic components
+        SELECT = "select_op"
+        INDEX_CAST = "zext_op"
+        ADDI = "add_op"
+        ADDF = "fadd_op"
+        SUBI = "sub_op"
+        SUBF = "fsub_op"
+        ANDI = "and_op"
+        ORI = "or_op"
+        XORI = "xor_op"
+        MULI = "mul_op"
+        MULF = "fmul_op"
+        DIVUI = "udiv_op"
+        DIVSI = "sdiv_op"
+        DIVF = "fdiv_op"
+        SITOFP = "sitofp_op"
+        REMSI = "urem_op"
+        EXTSO = "sext_op"
+        EXTUI = "zext_op"
+        TRUCI = "trunc_op"
+        SHRSI = "ashr_op"
+        SHLI = "shl_op"
+        GET_ELEMENT_PTR = "getelementptr_op"
+        # Integer comparisons
+        EQ = "icmp_eq_op"
+        NE = "icmp_ne_op"
+        SLT = "icmp_slt_op"
+        SLE = "icmp_sle_op"
+        SGT = "icmp_sgt_op"
+        SGE = "icmp_sge_op"
+        ULT = "icmp_ult_op"
+        ULE = "icmp_ule_op"
+        UGT = "icmp_ugt_op"
+        UGE = "icmp_uge_op"
+        # FLoating comparisons
+        ALWAYS_FALSE = "fcmp_false_op"
+        F_OEQ = "fcmp_oeq_op"
+        F_OGT = "fcmp_ogt_op"
+        F_OGE = "fcmp_oge_op"
+        F_OLT = "fcmp_olt_op"
+        F_OLE = "fcmp_ole_op"
+        F_ONE = "fcmp_one_op"
+        F_ORD = "fcmp_orq_op"
+        F_UEQ = "fcmp_ueq_op"
+        F_UGT = "fcmp_ugt_op"
+        F_UGE = "fcmp_uge_op"
+        F_ULT = "fcmp_ult_op"
+        F_ULE = "fcmp_ule_op"
+        F_UNE = "fcmp_une_op"
+        F_UNO = "fcmp_uno_op"
+        ALWAYS_TRUE = "fcmp_true_op"
+
+        def is_actually_dataflow(self: Self) -> bool:
+            return self in (
+                DotData.ComponentType.LOAD,
+                DotData.ComponentType.STORE,
+                DotData.ComponentType.RETURN,
+            )
+
+        @classmethod
+        def get_dataflow(cls: Type[Self]) -> list[Self]:
+            return list(
+                filter(
+                    lambda comp: comp.is_actually_dataflow() or not "_op" in comp.value,
+                    DotData.ComponentType,
+                )
+            )
+
+        @classmethod
+        def get_arithmetic(cls: Type[Self]) -> list[Self]:
+            return list(
+                filter(
+                    lambda comp: not comp.is_actually_dataflow()
+                    and "_op" in comp.value
+                    and not "icmp_" in comp.value
+                    and not "fcmp_" in comp.value,
+                    DotData.ComponentType,
+                )
+            )
+
+        @classmethod
+        def get_icmp(cls: Type[Self]) -> list[Self]:
+            return list(
+                filter(
+                    lambda comp: "icmp_" in comp.value,
+                    DotData.ComponentType,
+                )
+            )
+
+        @classmethod
+        def get_fcmp(cls: Type[Self]) -> list[Self]:
+            return list(
+                filter(
+                    lambda comp: "fcmp_" in comp.value,
+                    DotData.ComponentType,
+                )
+            )
+
+        @classmethod
+        def build_decoder(cls: Type[Self]) -> dict[str, Self]:
+            return {comp.value: comp for comp in DotData.ComponentType}
+
+
+_DECODE_COMPONENT_TYPE: Final[
+    Mapping[str, DotData.ComponentType]
+] = DotData.ComponentType.build_decoder()
+
+
+@dataclass(frozen=True)
 class SimData:
     time: Final[int]
 
@@ -143,9 +300,7 @@ class AreaData:
         with open(filepath, "r") as report:
             while line := report.readline():
                 line = line.strip()
-                if (
-                    new_section := AreaData._UTILIZATION_SECTIONS.get(line, None)
-                ) is not None:
+                if (new_section := AreaData._DECODE.get(line, None)) is not None:
                     section = new_section
                 elif section == AreaData._ReportSection.SLICE_LOGIC:
                     if "LUT as Logic" in line:
@@ -177,7 +332,7 @@ class AreaData:
         BLACK_BOXES = 9
         NETLISTS = 10
 
-    _UTILIZATION_SECTIONS: ClassVar[Mapping[str, "AreaData._ReportSection"]] = {
+    _DECODE: ClassVar[Mapping[str, "AreaData._ReportSection"]] = {
         "1. Slice Logic": _ReportSection.SLICE_LOGIC,
         "1.1 Summary of Registers by Type": _ReportSection.REGISTER_SUMMARY,
         "2. Slice Logic Distribution": _ReportSection.SLICE_LOGIC_DISTRIB,
@@ -254,7 +409,7 @@ def print_list(title: str, elems: Sequence[str]):
         print(f"\t{i}. {e}")
 
 
-def parse_args() -> argparse.Namespace:
+def cla() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="Vizualizer",
         description=(
@@ -262,6 +417,11 @@ def parse_args() -> argparse.Namespace:
         ),
     )
 
+    parser.add_argument(
+        "--dot",
+        metavar="filename",
+        help="Filename of DOT output",
+    )
     parser.add_argument(
         "--simulation",
         metavar="filename",
@@ -301,16 +461,22 @@ def parse_args() -> argparse.Namespace:
 def find_and_parse_reports(
     pattern: str, filename: str, dataType: Type[DataType]
 ) -> dict[str, DataType]:
+    full_path = os.path.join(pattern, filename)
+    full_path_tokens = full_path.split(os.path.sep)
+
     # Look for wildcards in path
     wildcards: list[int] = []
-    for i, token in enumerate(pattern.split(os.path.sep)):
-        if "**" in token:
-            raise ValueError("** wildcards are not supported yet")
-        elif "*" in token:
+    for i, token in enumerate(full_path_tokens):
+        if "*" in token:
+            if "**" in token:
+                raise ValueError("** wildcards aren't supported")
+            if token.count("*") > 1:
+                raise ValueError("Only one wildcard is supported per element")
+
             wildcards.append(i)
 
-    # There must be at least one wildcard in the path pattern it to match more that one
-    # thing
+    # There must be at least one wildcard in the path pattern for it to match more that
+    # one thing
     if len(wildcards) == 0:
         raise ValueError("There are no wildcards in the path")
 
@@ -319,7 +485,25 @@ def find_and_parse_reports(
 
     # Make up a unique name for each file using the parts of the path that were matched
     # by the wildcards
-    for fp in glob.glob(f"{pattern}/{filename}"):
+    for fp in glob.glob(full_path):
+        fp_tokens = fp.split(os.path.sep)
+
+        # Identify what the first wildcard was replaced with
+        wc = wildcards[0]
+        pattern_token = full_path_tokens[wc]
+        expanded_token = fp_tokens[wc]
+        wc_idx = pattern_token.find("*")
+        wc_len = len(expanded_token) - len(pattern_token) + 1
+        replacement = expanded_token[wc_idx : wc_idx + wc_len]
+
+        # Verify that each other wildcard was replaced by the same thing. If not, ignore
+        # the pattern match
+        if not all(
+            fp_tokens[wc_idx] == full_path_tokens[wc_idx].replace("*", replacement)
+            for wc_idx in wildcards[1:]
+        ):
+            continue
+
         # Try to parse the data from the file
         data: DataType
         try:
@@ -328,9 +512,8 @@ def find_and_parse_reports(
             print(f"Found report @ {fp} but failed to parse it\n\t-> {e}")
             continue
 
-        tokens = fp.split(os.path.sep)
-        name = "_".join(tokens[wc] for wc in wildcards)
-        reports[name] = data
+        # The text that was replaced by the wildcard becomes the name of the benchmark
+        reports[replacement] = data
 
     # Sort the bencmarks in the returned dictionnary in alphabetical order
     return {name: reports[name] for name in sorted(list(reports))}
@@ -372,6 +555,46 @@ def get_chart_generator(
         )
 
     return get_chart
+
+
+def viz_dot(info: DataInfo[DotData]) -> TabPanel:
+    chart_gen = get_chart_generator(info)
+
+    def get_category_panel(
+        comps: Sequence[DotData.ComponentType], title: str
+    ) -> TabPanel:
+        figs = [
+            chart_gen(
+                int,
+                lambda d: d.counts.get(comp, 0),
+                fig_args={"title": f"Number of {comp.value}"},
+            )
+            for comp in comps
+        ]
+
+        # Split figures, 4 on each row
+        rows: list[Row] = []
+        idx: int = 0
+        while idx < len(figs):
+            rows.append(row(*figs[idx : min(len(figs), idx + 4)]))
+            idx += 4
+
+        return TabPanel(child=layout(*rows, sizing_mode="stretch_width"), title=title)
+
+    dataflow_panel = get_category_panel(
+        DotData.ComponentType.get_dataflow(), "Dataflow"
+    )
+    arithmetic_panel = get_category_panel(
+        DotData.ComponentType.get_arithmetic(), "Arithmetic"
+    )
+    icmp_panel = get_category_panel(DotData.ComponentType.get_icmp(), "Integer CMP")
+    fcmp_panel = get_category_panel(DotData.ComponentType.get_fcmp(), "Floating CMP")
+
+    tabs = Tabs(
+        tabs=[dataflow_panel, arithmetic_panel, icmp_panel, fcmp_panel],
+        sizing_mode="stretch_width",
+    )
+    return TabPanel(child=tabs, title="Circuit")
 
 
 def viz_simulation(info: DataInfo[SimData]) -> TabPanel:
@@ -438,9 +661,10 @@ def viz_timing(info: DataInfo[TimingData]) -> TabPanel:
 
 
 def visualizer():
-    args = parse_args()
+    args = cla()
 
     paths: list[str] = args.paths
+    dot_filename: str | None = args.dot
     sim_filename: str | None = args.simulation
     area_filename: str | None = args.area
     timing_filename: str | None = args.timing
@@ -503,6 +727,10 @@ def visualizer():
         )
 
     panels: list[TabPanel] = []
+
+    if dot_filename is not None:
+        info = collect_data(dot_filename, DotData)
+        panels.append(viz_dot(info))
 
     if sim_filename is not None:
         info = collect_data(sim_filename, SimData)

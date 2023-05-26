@@ -38,9 +38,8 @@ legacy-dynamatic/
 compile/out
 
 # Compiled benchmarks
-benchmarks/**/dynamatic
-benchmarks/**/legacy
-benchmarks/**/bridge
+benchmarks/**
+!benchmarks/**/src
 
 # Build directory
 build/
