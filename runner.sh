@@ -35,6 +35,7 @@ OUTPUT_PATH=""
 SIMULATE=0
 SYNTHESIZE=0
 SMART_BUFFERS=0
+LOOP_ROTATE=0
 NO_COMPILE=0
 CLEAN=0
 
@@ -51,7 +52,8 @@ print_help_and_exit () {
     echo -e \
 "$0
     [--testsuite <suite-name>] [--flow <flow-name>] [--output <output-path>] 
-    [--no-compile] [--smart-buffers] [--simulate] [--synthesize] [--clean]
+    [--no-compile] [--simulate] [--synthesize] [--clean]
+    [--smart-buffers] [--loop-rotate]
     [--help|-h] 
     [<bench-name> ]...
 
@@ -60,10 +62,11 @@ List of options:
   --flow <flow-name>            : run a specific flow (dynamatic [default], legacy, bridge)
   --output <output-path>        : output path where to store results (relative path w.r.t. each benchmark directory)
   --no-compile                  : do not re-compile benchmarks, only use cached DOTs
-  --smart-buffers               : enable smart buffer placement (instead of stupid buffer placement)
   --simulate                    : enable VHDL simulation/verification with Modelsim
   --synthesize                  : enable VHDL synthesization with Vivado
   --clean                       : delete all output directories in selected benchmarks
+  --smart-buffers               : enable smart buffer placement (instead of stupid buffer placement)
+  --loop-rotate                 : enable loop rotation pass when compiling
   <bench-name>...               : run the selected flow only on specific benchmarks from the selected testsuite   
   --help | -h                   : display this help message
 "
@@ -354,7 +357,11 @@ legacy () {
     exit_on_fail "Failed to compile to LLVM IR" "Compiled to LLVM IR"
     
     # LLVM IR -> standard optimized LLVM IR
-	"$LLVM_OPT_BIN" -mem2reg -loop-rotate -constprop -simplifycfg -die \
+	local loop_rotate=""
+    if [[ $LOOP_ROTATE -ne 0 ]]; then
+        loop_rotate="-loop-rotate"
+    fi 
+    "$LLVM_OPT_BIN" -mem2reg $loop_rotate -constprop -simplifycfg -die \
         -instcombine -lowerswitch $f_ir -S -o "$f_ir_opt"
     exit_on_fail "Failed to apply standard optimization" "Applied standard optimization"
 
@@ -403,10 +410,9 @@ legacy () {
     dot -Tpng "$f_dot_bb" > "$f_png_bb"
     echo_status "Failed to convert DOT (BB) to PNG" "Converted DOT (BB) to PNG"
 
-    local ret=$?
     if [[ $SMART_BUFFERS -eq 1 ]]; then
         # Run smart buffer placement pass
-        ret=$(smart_buffers "$1")
+        smart_buffers "$1"
     fi
     return $?
 }
@@ -446,8 +452,12 @@ bridge () {
     exit_on_fail "Failed memory analysis" "Passed memory analysis"
 
     # affine dialect -> scf dialect
+	local loop_rotate=""
+    if [[ $LOOP_ROTATE -ne 0 ]]; then
+        loop_rotate="--scf-for-loop-rotation"
+    fi 
     "$DYNAMATIC_OPT_BIN" "$f_affine_mem" --allow-unregistered-dialect \
-        --lower-affine-to-scf > "$f_scf"
+        --lower-affine-to-scf $loop_rotate > "$f_scf"
     exit_on_fail "Failed affine -> scf conversion" "Lowered to scf"
 
     # scf dialect -> standard dialect
@@ -723,6 +733,10 @@ do
              "--smart-buffers")
                 SMART_BUFFERS=1
                 echo_info "Using smart buffers"
+                ;;
+            "--loop-rotate")
+                LOOP_ROTATE=1
+                echo_info "Using loop rotation pass"
                 ;;
             "--clean")
                 CLEAN=1
