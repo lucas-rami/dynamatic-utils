@@ -454,7 +454,7 @@ bridge () {
     # affine dialect -> scf dialect
 	local loop_rotate=""
     if [[ $LOOP_ROTATE -ne 0 ]]; then
-        loop_rotate="--scf-for-loop-rotation"
+        loop_rotate="--scf-rotate-for-loops"
     fi 
     "$DYNAMATIC_OPT_BIN" "$f_affine_mem" --allow-unregistered-dialect \
         --lower-affine-to-scf $loop_rotate > "$f_scf"
