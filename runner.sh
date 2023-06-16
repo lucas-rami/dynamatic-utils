@@ -262,6 +262,49 @@ smart_buffers() {
     return $ret
 }
 
+# Runs Dynamatic++'s profiler tool.
+#   $1: absolute path to benchmark directory (without trailing slash)
+#   $2: 1 if running the profiler in legacy-mode, 0 otherwise
+run_dynamatic_profiler() {
+    local bench_path="$1"
+    local name="$(basename $bench_path)"
+    local d_comp="$bench_path/$OUTPUT_PATH/comp"
+    local legacy_mode=$2
+
+    # Generated files
+    local f_out=""
+    local f_cfg_png="$d_comp/${name}_bbgraph.png"
+    if [[ $legacy_mode -eq 0 ]]; then
+        f_out="$d_comp/frequencies.csv"
+    else
+        f_out="$d_comp/${name}_bbgraph.dot"
+    fi
+
+    local test_input="$bench_path/src/test_input.txt"
+    if [[ ! -f "$test_input" ]]; then
+        echo_error "Failed to find test input for frequency counting"
+    fi
+
+    # Run profiler
+    local print_dot=""
+    if [[ $legacy_mode -ne 0 ]]; then
+        print_dot="--print-dot"
+    fi
+    "$DYNAMATIC_PROFILER_BIN" "$d_comp/std.mlir" --top-level-function="$name" \
+        --input-args-file="$test_input" $print_dot > $f_out 
+    echo_status "Failed to run profiler" "Profiled std-level kernel"
+    if [[ $? -ne 0 ]]; then
+        return $?
+    fi
+
+    if [[ $legacy_mode -ne 0 ]]; then
+        # Create the PNG corresponding to the DOT in legacy mode
+        dot -Tpng "$f_out" > "$f_cfg_png"
+        exit_on_fail "Failed to convert CFG DOT to PNG" "Converted CFG DOT to PNG"
+    fi
+    return 0
+}
+
 # Compiles a benchmark using Dynamatic's flow. At the moment, this only lowers
 # the source code down to handshake.
 #   $1: absolute path to benchmark directory (without trailing slash)
@@ -328,7 +371,14 @@ dynamatic () {
     # Convert DOT graph to PNG
     dot -Tpng "$f_dot" > "$f_png"
     exit_on_fail "Failed to convert DOT to PNG" "Converted DOT to PNG"
-    return 0
+
+    if [[ $SMART_BUFFERS -eq 0 ]]; then
+        return 0
+    fi
+
+    # Run profiler
+    run_dynamatic_profiler "$1" 0
+    return $?
 }
 
 # Compiles a benchmark using legacy Dynamatic's flow.
@@ -509,27 +559,11 @@ bridge () {
         return 0
     fi
 
-    # Read function arguments from file
-    local test_input="$bench_path/src/test_input.txt"
-    local kernel_args=""
-    while read -r line
-    do
-        kernel_args="$kernel_args $line"
-    done < "$test_input"
-
-    # Create CFG graph
-    "$CIRCT_HANDSHAKE_RUNNER_BIN" "$f_std" --top-level-function="$name" \
-        $kernel_args > /dev/null
-    echo_status "Failed to create CFG DOT" "Created CFG DOT"
-    if [ $? -ne 0 ]; then
-        rm "${name}_bbgraph.dot" 2> /dev/null
-        exit 1
+    # Run profiler
+    run_dynamatic_profiler "$1" 1
+    if [[ $? -ne 0 ]]; then
+        return $?
     fi
-    mv "${name}_bbgraph.dot" "$f_cfg_dot"
-
-    # Convert DOT graph to PNG
-    dot -Tpng "$f_cfg_dot" > "$f_cfg_png"
-    exit_on_fail "Failed to convert CFG DOT to PNG" "Converted CFG DOT to PNG"
 
     # Run smart buffer pass
     smart_buffers "$1"
@@ -766,9 +800,9 @@ fi
 # Check that required environment variables exist
 check_env_variables \
     BUFFERS_BIN \
-    CIRCT_HANDSHAKE_RUNNER_BIN \
     DOT2VHDL_BIN \
     DYNAMATIC_OPT_BIN \
+    DYNAMATIC_PROFILER_BIN \
     LEGACY_DYNAMATIC_ROOT \
     LLVM_CLANG_BIN \
     LLVM_OPT_BIN \
