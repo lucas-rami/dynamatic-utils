@@ -355,6 +355,8 @@ dynamatic () {
 
     # Create DOT graph
     "$DYNAMATIC_OPT_BIN" "$f_handshake" --allow-unregistered-dialect \
+        --handshake-concretize-index-type"width=32" \
+        --handshake-minimize-cst-width \
         --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
         --export-dot > /dev/null 2>&1
     if [ $? -ne 0 ]; then
@@ -534,12 +536,16 @@ bridge () {
     # Create DOT graph
     if [[ $SMART_BUFFERS -eq 0 ]]; then
         "$DYNAMATIC_OPT_BIN" "$f_handshake_ready" --allow-unregistered-dialect \
+            --handshake-concretize-index-type="width=32" \
+            --handshake-minimize-cst-width \
             --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
             --handshake-insert-buffers="buffer-size=2 strategy=cycles" \
             --handshake-infer-basic-blocks \
             --export-dot="legacy pretty-print=false" > /dev/null
     else
         "$DYNAMATIC_OPT_BIN" "$f_handshake_ready" --allow-unregistered-dialect \
+            --handshake-concretize-index-type"width=32" \
+            --handshake-minimize-cst-width \
             --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
             --handshake-infer-basic-blocks \
             --export-dot="legacy pretty-print=false" > /dev/null
