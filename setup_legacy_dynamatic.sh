@@ -46,7 +46,7 @@ $LEGACY_DYNAMATIC_ROOT, the script will try to use that installation instead \
 of cloning again."
 else
     mkdir -p $CLONE_PATH
-    git clone https://github.com/lana555/dynamatic $CLONE_PATH
+    git clone https://github.com/lana555/dynamatic $LEGACY_DYNAMATIC_ROOT
 fi
 
 echo "[INFO] Creating symlinks..."
