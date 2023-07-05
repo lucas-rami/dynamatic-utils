@@ -114,21 +114,13 @@ simulate() {
     local f_report="$d_sim/report.txt"
     
     reset_output_dir "$d_sim"
-
-    # Convert DOT graph to VHDL
-    "$DOT2VHDL_BIN" "$d_comp/$name" > /dev/null
-    echo_status "Failed to convert DOT to VHDL" "Converted DOT to VHDL"
-    if [[ $? -ne 0 ]]; then
-        return $?
-    fi
-    rm -f "$d_comp"/*.tcl
     
     # Create simulation directories
     mkdir -p "$d_c_src" "$d_c_out" "$d_vhdl_src" "$d_vhdl_out" \
         "$d_input_vectors" "$d_hls_verify"
     
-    # Move VHDL module and copy VHDL components to dedicated folder
-    mv "$d_comp/$name.vhd" "$d_vhdl_src"
+    # Copy VHDL module and VHDL components to dedicated folder
+    cp "$d_comp/$name.vhd" "$d_vhdl_src"
     cp "$LEGACY_DYNAMATIC_ROOT"/components/*.vhd "$d_vhdl_src"
 
     # Copy sources to dedicated folder
@@ -165,17 +157,9 @@ synthesize() {
 
     reset_output_dir "$d_synth"
 
-    # Convert DOT graph to VHDL
-    "$DOT2VHDL_BIN" "$d_comp/$name" > /dev/null
-    echo_status "Failed to convert DOT to VHDL" "Converted DOT to VHDL"
-    if [[ $? -ne 0 ]]; then
-        return $?
-    fi
-    rm -f "$d_comp"/*.tcl
-
     # Copy all synthesizable components to specific folder for Vivado
     mkdir -p "$d_hdl"
-    mv "$d_comp/$name.vhd" "$d_hdl"
+    cp "$d_comp/$name.vhd" "$d_hdl"
     cp "$LEGACY_DYNAMATIC_ROOT"/components/*.vhd "$d_hdl"
 
     # Generate synthesization scripts
@@ -208,6 +192,25 @@ set_property HD.CLK_SRC BUFGCTRL_X0Y0 [get_ports clk]
     local ret=$?
     rm -rf *.jou *.log .Xil
     return $ret
+}
+
+# Converts a DOT file with the name <benchmark-name>.dot inside the compile
+# directory to a VHDL design using the legacy dot2vhdl tool. The resulting VHDL
+# is placed under the same directory with the name <benchmark-name>.dot.
+#   $1: absolute path to benchmark directory (without trailing slash)
+legacy_dot2vhdl() {
+    local bench_path="$1"
+    local name="$(basename $bench_path)"
+    local d_comp="$bench_path/$OUTPUT_PATH/comp"
+
+    # Convert DOT graph to VHDL
+    "$DOT2VHDL_BIN" "$d_comp/$name" > /dev/null
+    echo_status "Failed to convert DOT to VHDL" "Converted DOT to VHDL"
+    if [[ $? -ne 0 ]]; then
+        return $?
+    fi
+    rm -f "$d_comp"/*.tcl
+    return 0
 }
 
 # Runs legacy Dynamatic's smart buffer placement pass on an input DOT.
@@ -262,7 +265,8 @@ smart_buffers() {
     return $ret
 }
 
-# Runs Dynamatic++'s profiler tool.
+# Runs Dynamatic++'s profiler tool. Uses and expects a std-level MLIR file
+# located at "$(basename $1)/$OUTPUT_PATH/comp/std.mlir".
 #   $1: absolute path to benchmark directory (without trailing slash)
 #   $2: 1 if running the profiler in legacy-mode, 0 otherwise
 run_dynamatic_profiler() {
@@ -319,6 +323,10 @@ dynamatic () {
     local f_affine_mem="$d_comp/affine_mem.mlir"
     local f_std="$d_comp/std.mlir"
     local f_handshake="$d_comp/handshake.mlir"
+    local f_handshake_transformed="$d_comp/handshake_transformed.mlir"
+    local f_handshake_buffered="$d_comp/handshake_buffered.mlir"
+    local f_netlist="$d_comp/netlist.mlir"
+    local f_netlist_explicit="$d_comp/netlist_explicit.mlir"
     local f_dot="$d_comp/$name.dot"
     local f_png="$d_comp/$name.png"
 
@@ -353,12 +361,43 @@ dynamatic () {
         --lower-std-to-handshake-fpga18="id-basic-blocks" > "$f_handshake"
     exit_on_fail "Failed std -> handshake conversion" "Lowered to handshake"
 
-    # Create DOT graph
+    # handshake transformations
     "$DYNAMATIC_OPT_BIN" "$f_handshake" --allow-unregistered-dialect \
-        --handshake-concretize-index-type"width=32" \
+        --handshake-concretize-index-type="width=32" \
         --handshake-minimize-cst-width \
         --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
-        --export-dot > /dev/null 2>&1
+        > "$f_handshake_transformed"    
+    exit_on_fail "Failed to transform handshake IR" "Transformed handshake"
+
+    # Buffer placement
+    if [[ $SMART_BUFFERS -eq 0 ]]; then
+        "$DYNAMATIC_OPT_BIN" "$f_handshake_transformed" \
+            --allow-unregistered-dialect \
+            --handshake-insert-buffers="buffer-size=2 strategy=cycles" \
+            --handshake-infer-basic-blocks \
+            > "$f_handshake_buffered"
+        exit_on_fail "Failed to buffer IR" "Buffered handshake"
+    else
+        # Run profiler
+        run_dynamatic_profiler "$1" 0
+        exit_on_fail "Failed to run frequency profiler" "Ran frequency profiler"
+        echo_warning "Smart buffer placement pass does not exist for dynamatic yet, no buffers will be inserted."
+    fi
+
+    # handshake dialect -> netlist    
+    "$DYNAMATIC_OPT_BIN" "$f_handshake_buffered" --allow-unregistered-dialect \
+        --lower-handshake-to-netlist > "$f_netlist"
+    exit_on_fail "Failed handshake -> netlist conversion" "Lowered to netlist"
+
+    # netlist -> explicit netlist    
+    "$DYNAMATIC_OPT_BIN" "$f_handshake_buffered" --allow-unregistered-dialect \
+        --lower-handshake-to-netlist --lower-esi-ports --lower-esi-types \
+        > "$f_netlist_explicit"
+    exit_on_fail "Failed netlist -> explicit netlist conversion" "Lowered to explicit netlist"
+
+    # Create DOT graph
+    "$DYNAMATIC_OPT_BIN" "$f_handshake_buffered" \
+        --allow-unregistered-dialect --export-dot > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         # DOT gets generated in script directory, remove it 
         rm "$name.dot" 
@@ -378,8 +417,6 @@ dynamatic () {
         return 0
     fi
 
-    # Run profiler
-    run_dynamatic_profiler "$1" 0
     return $?
 }
 
@@ -465,7 +502,12 @@ legacy () {
     if [[ $SMART_BUFFERS -eq 1 ]]; then
         # Run smart buffer placement pass
         smart_buffers "$1"
+        if [[ $? -ne 0 ]]; then
+            return $?
+        fi
     fi
+
+    legacy_dot2vhdl "$1"
     return $?
 }
 
@@ -483,7 +525,7 @@ bridge () {
     local f_scf="$d_comp/scf.mlir"
     local f_std="$d_comp/std.mlir"
     local f_handshake="$d_comp/handshake.mlir"
-    local f_handshake_ready="$d_comp/handshake_ready.mlir"
+    local f_handshake_transformed="$d_comp/handshake_transformed.mlir"
     local f_dfg_dot="$d_comp/$name.dot"
     local f_dfg_png="$d_comp/$name.png"
     local f_cfg_dot="$d_comp/${name}_bbgraph.dot"
@@ -526,31 +568,28 @@ bridge () {
         > "$f_handshake"
     exit_on_fail "Failed std -> handshake conversion" "Lowered to handshake"
 
-    # handshake dialect -> legacy-compatible handshake
+    # handshake transformations
     "$DYNAMATIC_OPT_BIN" "$f_handshake" --allow-unregistered-dialect \
-        --handshake-prepare-for-legacy --handshake-infer-basic-blocks \
-        > "$f_handshake_ready"
-    exit_on_fail "Failed handshake -> legacy-compatible handshake" \
-        "Lowered to legacy-compatible handshake"
+        --handshake-prepare-for-legacy \
+        --handshake-concretize-index-type="width=32" \
+        --handshake-minimize-cst-width \
+        --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
+        > "$f_handshake_transformed"
+    exit_on_fail "Failed to transform Handshake IR" "Transformed handshake"
 
     # Create DOT graph
-    if [[ $SMART_BUFFERS -eq 0 ]]; then
-        "$DYNAMATIC_OPT_BIN" "$f_handshake_ready" --allow-unregistered-dialect \
-            --handshake-concretize-index-type="width=32" \
-            --handshake-minimize-cst-width \
-            --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
-            --handshake-insert-buffers="buffer-size=2 strategy=cycles" \
-            --handshake-infer-basic-blocks \
+    if [[ $SMART_BUFFERS -ne 0 ]]; then
+        "$DYNAMATIC_OPT_BIN" "$f_handshake_transformed" \
+            --allow-unregistered-dialect \
             --export-dot="legacy pretty-print=false" > /dev/null
     else
-        "$DYNAMATIC_OPT_BIN" "$f_handshake_ready" --allow-unregistered-dialect \
-            --handshake-concretize-index-type"width=32" \
-            --handshake-minimize-cst-width \
-            --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
-            --handshake-infer-basic-blocks \
+        "$DYNAMATIC_OPT_BIN" "$f_handshake_transformed" \
+            --allow-unregistered-dialect \
+            --handshake-insert-buffers="buffer-size=2 strategy=cycles" \
             --export-dot="legacy pretty-print=false" > /dev/null
     fi
     echo_status "Failed to create DFG DOT" "Created DFG DOT"
+    
     if [ $? -ne 0 ]; then
         rm "${name}.dot" 2> /dev/null 
         return 1
@@ -561,18 +600,21 @@ bridge () {
     dot -Tpng "$f_dfg_dot" > "$f_dfg_png"
     echo_status "Failed to convert DFG DOT to PNG" "Converted DFG DOT to PNG"
 
-    if [[ $SMART_BUFFERS -eq 0 ]]; then
-        return 0
+    if [[ $SMART_BUFFERS -ne 0 ]]; then
+        # Run profiler
+        run_dynamatic_profiler "$1" 1
+        if [[ $? -ne 0 ]]; then
+            return $?
+        fi
+        # Run smart buffer pass
+        smart_buffers "$1"
+        if [[ $? -ne 0 ]]; then
+            return $?
+        fi
     fi
-
-    # Run profiler
-    run_dynamatic_profiler "$1" 1
-    if [[ $? -ne 0 ]]; then
-        return $?
-    fi
-
-    # Run smart buffer pass
-    smart_buffers "$1"
+    
+    # Convert to VHDL
+    legacy_dot2vhdl "$1"
     return $?
 }
 
