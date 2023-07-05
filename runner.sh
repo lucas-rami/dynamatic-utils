@@ -130,9 +130,8 @@ simulate() {
     # Simulate and verify design
     echo_info "Launching Modelsim simulation"
     cd "$d_hls_verify"
-    "$LEGACY_DYNAMATIC_ROOT/Regression_test/hls_verifier/HlsVerifier/build/hlsverifier" \
-         cover -aw32 "$d_c_src/$name.c" "$d_c_src/$name.c" $name \
-         > "$f_report"
+    "$HLS_VERIFIER_BIN" cover -aw32 "$d_c_src/$name.c" "$d_c_src/$name.c" \
+        $name > "$f_report"
     local ret=$?
     cd - > /dev/null
     return $ret
@@ -851,6 +850,7 @@ check_env_variables \
     DOT2VHDL_BIN \
     DYNAMATIC_OPT_BIN \
     DYNAMATIC_PROFILER_BIN \
+    HLS_VERIFIER_BIN \
     LEGACY_DYNAMATIC_ROOT \
     LLVM_CLANG_BIN \
     LLVM_OPT_BIN \
