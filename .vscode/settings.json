@@ -3,15 +3,7 @@
     "editor.detectIndentation": true,
     "editor.defaultFormatter": "xaver.clang-format",
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
-    "cmake.sourceDirectory": "${workspaceFolder:tools}/.",
-    "cmake.buildDirectory": "${workspaceFolder:tools}/build",
     "cmake.generator": "Ninja",
-    "cmake.configureArgs": [
-        "-DLLVM_DIR=${env:POLYGEIST_PATH}/build/lib/cmake/llvm",
-        "-DMLIR_DIR=${env:POLYGEIST_PATH}/build/lib/cmake/mlir",
-        "-DCMAKE_C_COMPILER=${env:POLYGEIST_PATH}/build/bin/clang",
-        "-DCMAKE_CXX_COMPILER=${env:POLYGEIST_PATH}/build/bin/clang++"
-    ],
     "[python]": {
         "editor.defaultFormatter": "ms-python.python"
     },

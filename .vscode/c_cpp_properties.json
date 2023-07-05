@@ -3,18 +3,17 @@
         {
             "name": "Linux",
             "includePath": [
-                "${workspaceFolder}/include/",
-                "${env:POLYGEIST_PATH}/build/include/",
-                "${env:POLYGEIST_PATH}/build/tools/mlir/include",
-                "${env:POLYGEIST_PATH}/llvm-project/llvm/include/",
-                "${env:POLYGEIST_PATH}/llvm-project/mlir/include/"
+                "${env:CIRCT_PATH}/include/",
+                "${env:CIRCT_PATH}/build/include/",
+                "${env:CIRCT_PATH}/llvm/llvm/include/",
+                "${env:CIRCT_PATH}/llvm/mlir/include/",
+                "${env:CIRCT_PATH}/llvm/build/include/",
+                "${env:CIRCT_PATH}/llvm/build/tools/mlir/include/"
             ],
-            "defines": [],
-            "compilerPath": "${env:POLYGEIST_PATH}/build/bin/clang++",
-            "cStandard": "c17",
-            "cppStandard": "c++20",
             "intelliSenseMode": "linux-clang-x64",
-            "configurationProvider": "ms-vscode.makefile-tools"
+            "compilerPath": "/usr/bin/clang",
+            "cStandard": "c17",
+            "cppStandard": "c++20"
         }
     ],
     "version": 4
