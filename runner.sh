@@ -390,7 +390,7 @@ dynamatic () {
 
     # netlist -> explicit netlist    
     "$DYNAMATIC_OPT_BIN" "$f_handshake_buffered" --allow-unregistered-dialect \
-        --lower-handshake-to-netlist --lower-esi-ports --lower-esi-types \
+        --lower-handshake-to-netlist --lower-esi-ports \
         > "$f_netlist_explicit"
     exit_on_fail "Failed netlist -> explicit netlist conversion" "Lowered to explicit netlist"
 
