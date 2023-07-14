@@ -374,34 +374,32 @@ mlir_to_handshake() {
 # "$(basename $1)/$OUTPUT_PATH/comp/
 #   $1: absolute path to benchmark directory (without trailing slash)
 #   $2: absolute path to the Handshake-level IR to convert to DOT
-#   $3: 1 if running the DOT exporter in legacy-mode, 0 otherwise
-create_dot() {
+#   $3: 1 if running the DOT exporter in legacy mode, 0 otherwise
+#   $3: 1 if running the DOT exporter in debug mode, 0 otherwise
+export_dot() {
     local bench_path="$1"
     local name="$(basename $bench_path)"
     local f_src="$2"
     local legacy_mode="$3"
+    local debug_mode="$4"
 
     # Generated directories/files
     local d_comp="$bench_path/$OUTPUT_PATH/comp"
     local f_dot="$d_comp/$name.dot"
     local f_png="$d_comp/$name.png"
 
-    # Export to DOT
+    # Setup export arguments
+    local export_args=""
     if [[ $legacy_mode -ne 0 ]]; then
-        "$DYNAMATIC_OPT_BIN" "$f_src" --allow-unregistered-dialect \
-            --export-dot="legacy pretty-print=false" > /dev/null
-    else
-        "$DYNAMATIC_OPT_BIN" "$f_src" --allow-unregistered-dialect \
-            --export-dot > /dev/null
+        export_args="$export_args--legacy "
     fi
-    echo_status "Failed to create DFG DOT" "Created DFG DOT"
+    if [[ $debug_mode -ne 0 ]]; then
+        export_args="$export_args--dot-debug "
+    fi
 
-    # Make sure to remove the output file if the export failed
-    if [ $? -ne 0 ]; then
-        rm "${name}.dot" 2> /dev/null 
-        return 1
-    fi
-    mv "$name.dot" "$f_dot"
+    # Export to DOT
+    "$DYNAMATIC_EXPORT_DOT_BIN" "$f_src" $export_args > "$f_dot"
+    exit_on_fail "Failed to create DFG DOT" "Created DFG DOT"
 
     # Convert DOT graph to PNG
     dot -Tpng "$f_dot" > "$f_png"
@@ -462,7 +460,7 @@ dynamatic () {
         > "$f_netlist_explicit"
     exit_on_fail "Failed netlist -> explicit netlist conversion" "Lowered to explicit netlist"
 
-    create_dot "$1" "$f_handshake_buffered" 0
+    export_dot "$1" "$f_handshake_buffered" 0 0
     return $?
 }
 
@@ -500,7 +498,7 @@ bridge () {
         exit_on_fail "Failed to buffer IR" "Buffered handshake"
     fi
 
-    create_dot "$1" "$f_handshake_buffered" 1
+    export_dot "$1" "$f_handshake_buffered" 1 1
     if [[ $? -ne 0 ]]; then
         return $?
     fi
@@ -846,6 +844,7 @@ fi
 check_env_variables \
     BUFFERS_BIN \
     DOT2VHDL_BIN \
+    DYNAMATIC_EXPORT_DOT_BIN \
     DYNAMATIC_OPT_BIN \
     DYNAMATIC_PROFILER_BIN \
     HLS_VERIFIER_BIN \
