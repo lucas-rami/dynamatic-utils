@@ -35,7 +35,7 @@ OUTPUT_PATH=""
 SIMULATE=0
 SYNTHESIZE=0
 SMART_BUFFERS=0
-LOOP_ROTATE=0
+NO_LOOP_ROTATE=0
 NO_COMPILE=0
 CLEAN=0
 
@@ -66,7 +66,7 @@ List of options:
   --synthesize                  : enable VHDL synthesization with Vivado
   --clean                       : delete all output directories in selected benchmarks
   --smart-buffers               : enable smart buffer placement (instead of stupid buffer placement)
-  --loop-rotate                 : enable loop rotation pass when compiling
+  --no-loop-rotate              : disable loop rotation pass when compiling
   <bench-name>...               : run the selected flow only on specific benchmarks from the selected testsuite   
   --help | -h                   : display this help message
 "
@@ -340,9 +340,9 @@ mlir_to_handshake() {
     exit_on_fail "Failed memory analysis" "Passed memory analysis"
 
     # affine dialect -> scf dialect
-	local loop_rotate=""
-    if [[ $LOOP_ROTATE -ne 0 ]]; then
-        loop_rotate="--scf-rotate-for-loops"
+	local loop_rotate="--scf-rotate-for-loops"
+    if [[ $NO_LOOP_ROTATE -ne 0 ]]; then
+        loop_rotate=""
     fi 
     "$DYNAMATIC_OPT_BIN" "$f_affine_mem" --allow-unregistered-dialect \
         --lower-affine-to-scf $loop_rotate > "$f_scf"
@@ -399,12 +399,12 @@ export_dot() {
 
     # Export to DOT
     "$DYNAMATIC_EXPORT_DOT_BIN" "$f_src" $export_args > "$f_dot"
-    exit_on_fail "Failed to create DFG DOT" "Created DFG DOT"
+    exit_on_fail "Failed to create DOT" "Created DOT"
 
     # Convert DOT graph to PNG
     dot -Tpng "$f_dot" > "$f_png"
-    echo_status "Failed to convert DFG DOT to PNG" "Converted DFG DOT to PNG"
-    return $?
+    exit_on_fail "Failed to convert DOT to PNG" "Converted DOT to PNG"
+    return 0
 }
 
 # Compiles a benchmark using Dynamatic's flow. At the moment, this only lowers
@@ -461,7 +461,7 @@ dynamatic () {
     exit_on_fail "Failed netlist -> explicit netlist conversion" "Lowered to explicit netlist"
 
     export_dot "$1" "$f_handshake_buffered" 0 0
-    return $?
+    return 0
 }
 
 # Compiles a benchmark using Dynamatic's flow. At the end, generates a
@@ -499,9 +499,6 @@ bridge () {
     fi
 
     export_dot "$1" "$f_handshake_buffered" 1 1
-    if [[ $? -ne 0 ]]; then
-        return $?
-    fi
 
     if [[ $SMART_BUFFERS -ne 0 ]]; then
         # Run profiler
@@ -548,10 +545,11 @@ legacy () {
     exit_on_fail "Failed to compile to LLVM IR" "Compiled to LLVM IR"
     
     # LLVM IR -> standard optimized LLVM IR
-	local loop_rotate=""
-    if [[ $LOOP_ROTATE -ne 0 ]]; then
-        loop_rotate="-loop-rotate"
+	local loop_rotate="-loop-rotate"
+    if [[ $NO_LOOP_ROTATE -ne 0 ]]; then
+        loop_rotate=""
     fi 
+
     "$LLVM_OPT_BIN" -mem2reg $loop_rotate -constprop -simplifycfg -die \
         -instcombine -lowerswitch $f_ir -S -o "$f_ir_opt"
     exit_on_fail "Failed to apply standard optimization" "Applied standard optimization"
@@ -811,9 +809,9 @@ do
                 SMART_BUFFERS=1
                 echo_info "Using smart buffers"
                 ;;
-            "--loop-rotate")
-                LOOP_ROTATE=1
-                echo_info "Using loop rotation pass"
+            "--no-loop-rotate")
+                NO_LOOP_ROTATE=1
+                echo_info "Disabling loop rotation pass"
                 ;;
             "--clean")
                 CLEAN=1
