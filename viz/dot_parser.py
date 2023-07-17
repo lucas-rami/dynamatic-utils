@@ -1,6 +1,6 @@
-class DOTParsingError(Exception):
-    def __init__(self, msg: str, line: str) -> None:
-        super().__init__(f"{msg}\n\tIn: {line}")
+def is_subgraph_decl(line: str) -> bool:
+    tokens = line.strip().split(" ")
+    return tokens[0] == "subgraph"
 
 
 def find_outside_quotes(
@@ -11,7 +11,7 @@ def find_outside_quotes(
     in_quotes: bool = False
     for i, char in enumerate(txt[start_idx:end_idx]):
         if not in_quotes and txt[start_idx + i].startswith(find):
-            return i
+            return start_idx + i
         if char == '"':
             in_quotes = not in_quotes
     return -1
@@ -19,15 +19,18 @@ def find_outside_quotes(
 
 def has_attribute_list(line: str) -> tuple[int, int] | None:
     open_bracket = find_outside_quotes(line, "[")
-    close_bracket = find_outside_quotes(line, "]")
-    if open_bracket == -1 or close_bracket == -1:
+    if open_bracket == -1:
+        return None
+    close_bracket = find_outside_quotes(line, "]", open_bracket)
+    if close_bracket == -1:
         return None
     return open_bracket, close_bracket
 
 
 def is_node(line: str) -> bool:
     if (indices := has_attribute_list(line)) is not None:
-        return not "->" in line[: indices[0]]
+        before_attr = line[: indices[0]]
+        return not ("->" in before_attr or before_attr.strip() == "node")
     return False
 
 
@@ -114,3 +117,8 @@ def get_attributes(line: str) -> dict[str, str]:
                 break
 
     return all_attributes
+
+
+class DOTParsingError(Exception):
+    def __init__(self, msg: str, line: str) -> None:
+        super().__init__(f"{msg}\n\tIn: {line}")

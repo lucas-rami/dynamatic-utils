@@ -85,102 +85,124 @@ class DataInfo(Generic[DataStorage]):
 
 @dataclass(frozen=True)
 class DotData:
+    bb_count: Final[int]
     counts: Final[Mapping["DotData.ComponentType", int]]
+
+    @property
+    def num_components(self) -> int:
+        return sum(self.counts.values())
 
     @classmethod
     def from_file(cls: Type[Self], filepath: str) -> Self:
+        bb_count: int = 0
         counts: dict[DotData.ComponentType, int] = {}
 
+        # Add the passed component to the total counts
+        def count(comp: DotData.ComponentType | None):
+            if comp is not None:
+                counts[comp] = counts.get(comp, 0) + 1
+            else:
+                raise ValueError(f"Found unknown component in DOT\n\tIn: {line}")
+
+        # Decode the component using Dynamatic++ convention
+        def decode(attributes: dict[str, str]):
+            if (mlir_attr := attributes.get("mlir_op", None)) is not None:
+                return count(_DECODE_COMPONENT_TYPE.get(mlir_attr, None))
+            raise ValueError(f"Failed to decode component type\n\tIn: {line}")
+
+        # Decode the component using legacy Dynamatic convention
+        def decode_legacy(attributes: dict[str, str]):
+            if (type_attr := attributes.get("type", None)) is not None:
+                if type_attr == "Operator":
+                    if (op_attr := attributes.get("op", None)) is not None:
+                        return count(_DECODE_COMPONENT_TYPE_LEGACY.get(op_attr, None))
+                    raise ValueError(f"Failed to decode component type\n\tIn: {line}")
+                return count(_DECODE_COMPONENT_TYPE_LEGACY.get(type_attr, None))
+            raise ValueError(f"Failed to decode component type\n\tIn: {line}")
+
+        # Iterate over all lines in the DOT to find subgraph and node declarations
         with open(filepath, "r") as report:
             while line := report.readline():
-                line = line.strip()
-                if not dot_parser.is_node(line):
-                    continue
-                attributes = dot_parser.get_attributes(line)
-                if (typeAttr := attributes.get("type", None)) is not None:
-                    comp: DotData.ComponentType | None = None
-                    if typeAttr == "Operator":
-                        if (opAttr := attributes.get("op", None)) is not None:
-                            comp = _DECODE_COMPONENT_TYPE.get(opAttr, None)
+                if dot_parser.is_subgraph_decl(line):
+                    bb_count += 1
+                elif dot_parser.is_node(line):
+                    attributes = dot_parser.get_attributes(line)
+                    if "mlir_op" in attributes:
+                        decode(attributes)
                     else:
-                        comp = _DECODE_COMPONENT_TYPE.get(typeAttr, None)
-                    if comp is not None:
-                        counts[comp] = counts.get(comp, 0) + 1
-                    else:
-                        raise ValueError(
-                            f"Found unknown component in DOT\n\tIn: {line}"
-                        )
+                        decode_legacy(attributes)
 
-        return DotData(counts)
+        return DotData(bb_count, counts)
 
     class ComponentType(Enum):
         # Dataflow components
-        ENTRY = "Entry"
-        CONTROL_MERGE = "CntrlMerge"
-        MERGE = "Merge"
-        MUX = "Mux"
-        BRANCH = "Branch"
-        BUFFER = "Buffer"
-        MEMORY_CONTROLLER = "MC"
-        Fork = "Fork"
-        SOURCE = "Source"
-        SINK = "Sink"
-        CONSTANT = "Constant"
-        EXIT = "Exit"
-        LOAD = "mc_load_op"
-        STORE = "mc_store_op"
-        RETURN = "ret_op"
+        ENTRY = ("handshake.arg", "Entry")
+        CONTROL_MERGE = ("handshake.control_merge", "CntrlMerge")
+        MERGE = ("handshake.merge", "Merge")
+        MUX = ("handshake.mux", "Mux")
+        BRANCH = ("handshake.br", "<does not exist>")
+        CBRANCH = ("handshake.cond_br", "Branch")
+        BUFFER = ("handshake.buffer", "Buffer")
+        MEMORY_CONTROLLER = ("handshake.mem_controller", "MC")
+        Fork = ("handshake.fork", "Fork")
+        SOURCE = ("handshake.source", "Source")
+        SINK = ("handshake.sink", "Sink")
+        CONSTANT = ("handshake.constant", "Constant")
+        EXIT = ("handshake.end", "Exit")
+        LOAD = ("handshake.d_load", "mc_load_op")
+        STORE = ("handshake.d_store", "mc_store_op")
+        RETURN = ("handshake.d_return", "ret_op")
         # Arithmetic components
-        SELECT = "select_op"
-        INDEX_CAST = "zext_op"
-        ADDI = "add_op"
-        ADDF = "fadd_op"
-        SUBI = "sub_op"
-        SUBF = "fsub_op"
-        ANDI = "and_op"
-        ORI = "or_op"
-        XORI = "xor_op"
-        MULI = "mul_op"
-        MULF = "fmul_op"
-        DIVUI = "udiv_op"
-        DIVSI = "sdiv_op"
-        DIVF = "fdiv_op"
-        SITOFP = "sitofp_op"
-        REMSI = "urem_op"
-        EXTSO = "sext_op"
-        EXTUI = "zext_op"
-        TRUCI = "trunc_op"
-        SHRSI = "ashr_op"
-        SHLI = "shl_op"
-        GET_ELEMENT_PTR = "getelementptr_op"
+        SELECT = ("arith.select", "select_op")
+        INDEX_CAST = ("arith.extui", "zext_op")
+        ADDI = ("arith.addi", "add_op")
+        ADDF = ("arith.addf", "fadd_op")
+        SUBI = ("arith.subi", "sub_op")
+        SUBF = ("arith.subf", "fsub_op")
+        ANDI = ("arith.andi", "and_op")
+        ORI = ("arith.ori", "or_op")
+        XORI = ("arith.xori", "xor_op")
+        MULI = ("arith.muli", "mul_op")
+        MULF = ("arith.mulf", "fmul_op")
+        DIVUI = ("arith.divui", "udiv_op")
+        DIVSI = ("arith.divsi", "sdiv_op")
+        DIVF = ("arith.divf", "fdiv_op")
+        SITOFP = ("arith.sitofp", "sitofp_op")
+        REMSI = ("arith.remsi", "urem_op")
+        EXTSI = ("arith.extsi", "sext_op")
+        EXTUI = ("arith.extui", "zext_op")
+        TRUNCI = ("arith.trunci", "trunc_op")
+        SHRSI = ("arith.shrsi", "ashr_op")
+        SHLI = ("arith.shli", "shl_op")
+        GET_ELEMENT_PTR = ("arith.get_element_ptr", "getelementptr_op")
         # Integer comparisons
-        EQ = "icmp_eq_op"
-        NE = "icmp_ne_op"
-        SLT = "icmp_slt_op"
-        SLE = "icmp_sle_op"
-        SGT = "icmp_sgt_op"
-        SGE = "icmp_sge_op"
-        ULT = "icmp_ult_op"
-        ULE = "icmp_ule_op"
-        UGT = "icmp_ugt_op"
-        UGE = "icmp_uge_op"
+        EQ = ("arith.cmpi==", "icmp_eq_op")
+        NE = ("arith.cmpi!=", "icmp_ne_op")
+        SLT = ("arith.cmpi<", "icmp_slt_op")
+        SLE = ("arith.cmpi,<=", "icmp_sle_op")
+        SGT = ("arith.cmpi>", "icmp_sgt_op")
+        SGE = ("arith.cmpi>=", "icmp_sge_op")
+        ULT = ("arith.cmpi<", "icmp_ult_op")
+        ULE = ("arith.cmpi<=", "icmp_ule_op")
+        UGT = ("arith.cmpi>", "icmp_ugt_op")
+        UGE = ("arith.cmpi>=", "icmp_uge_op")
         # FLoating comparisons
-        ALWAYS_FALSE = "fcmp_false_op"
-        F_OEQ = "fcmp_oeq_op"
-        F_OGT = "fcmp_ogt_op"
-        F_OGE = "fcmp_oge_op"
-        F_OLT = "fcmp_olt_op"
-        F_OLE = "fcmp_ole_op"
-        F_ONE = "fcmp_one_op"
-        F_ORD = "fcmp_orq_op"
-        F_UEQ = "fcmp_ueq_op"
-        F_UGT = "fcmp_ugt_op"
-        F_UGE = "fcmp_uge_op"
-        F_ULT = "fcmp_ult_op"
-        F_ULE = "fcmp_ule_op"
-        F_UNE = "fcmp_une_op"
-        F_UNO = "fcmp_uno_op"
-        ALWAYS_TRUE = "fcmp_true_op"
+        ALWAYS_FALSE = ("arith.cmpffalse", "fcmp_false_op")
+        F_OEQ = ("arith.cmpf==", "fcmp_oeq_op")
+        F_OGT = ("arith.cmpf>", "fcmp_ogt_op")
+        F_OGE = ("arith.cmpf>=", "fcmp_oge_op")
+        F_OLT = ("arith.cmpf<", "fcmp_olt_op")
+        F_OLE = ("arith.cmpf<=", "fcmp_ole_op")
+        F_ONE = ("arith.cmpf!=", "fcmp_one_op")
+        F_ORD = ("arith.cmpfordered?", "fcmp_orq_op")
+        F_UEQ = ("arith.cmpf==", "fcmp_ueq_op")
+        F_UGT = ("arith.cmpf>", "fcmp_ugt_op")
+        F_UGE = ("arith.cmpf>=", "fcmp_uge_op")
+        F_ULT = ("arith.cmpf<", "fcmp_ult_op")
+        F_ULE = ("arith.cmpf<=", "fcmp_ule_op")
+        F_UNE = ("arith.cmpf!=", "fcmp_une_op")
+        F_UNO = ("arith.cmpfunordered?", "fcmp_uno_op")
+        ALWAYS_TRUE = ("arith.cmpftrue", "fcmp_true_op")
 
         def is_actually_dataflow(self: Self) -> bool:
             return self in (
@@ -193,7 +215,7 @@ class DotData:
         def get_dataflow(cls: Type[Self]) -> list[Self]:
             return list(
                 filter(
-                    lambda comp: comp.is_actually_dataflow() or not "_op" in comp.value,
+                    lambda comp: comp.value[0].startswith("handshake."),
                     DotData.ComponentType,
                 )
             )
@@ -202,10 +224,8 @@ class DotData:
         def get_arithmetic(cls: Type[Self]) -> list[Self]:
             return list(
                 filter(
-                    lambda comp: not comp.is_actually_dataflow()
-                    and "_op" in comp.value
-                    and not "icmp_" in comp.value
-                    and not "fcmp_" in comp.value,
+                    lambda comp: comp.value[0].startswith("arith.")
+                    and not comp.value[0].startswith("arith.cmp"),
                     DotData.ComponentType,
                 )
             )
@@ -214,7 +234,7 @@ class DotData:
         def get_icmp(cls: Type[Self]) -> list[Self]:
             return list(
                 filter(
-                    lambda comp: "icmp_" in comp.value,
+                    lambda comp: comp.value[0].startswith("arith.cmpi"),
                     DotData.ComponentType,
                 )
             )
@@ -223,19 +243,28 @@ class DotData:
         def get_fcmp(cls: Type[Self]) -> list[Self]:
             return list(
                 filter(
-                    lambda comp: "fcmp_" in comp.value,
+                    lambda comp: comp.value[0].startswith("arith.cmpf"),
                     DotData.ComponentType,
                 )
             )
 
         @classmethod
         def build_decoder(cls: Type[Self]) -> dict[str, Self]:
-            return {comp.value: comp for comp in DotData.ComponentType}
+            return {comp.value[0]: comp for comp in DotData.ComponentType}
+
+        @classmethod
+        def build_legacy_decoder(cls: Type[Self]) -> dict[str, Self]:
+            return {comp.value[1]: comp for comp in DotData.ComponentType}
 
 
 _DECODE_COMPONENT_TYPE: Final[
     Mapping[str, DotData.ComponentType]
 ] = DotData.ComponentType.build_decoder()
+
+
+_DECODE_COMPONENT_TYPE_LEGACY: Final[
+    Mapping[str, DotData.ComponentType]
+] = DotData.ComponentType.build_legacy_decoder()
 
 
 @dataclass(frozen=True)
@@ -284,8 +313,6 @@ class AreaData:
 
     @classmethod
     def from_file(cls: Type[Self], filepath: str) -> Self:
-        section: AreaData._ReportSection | None = None
-
         lut_logic: int = 0
         lut_ram: int = 0
         lut_reg: int = 0
@@ -300,51 +327,20 @@ class AreaData:
         with open(filepath, "r") as report:
             while line := report.readline():
                 line = line.strip()
-                if (new_section := AreaData._DECODE.get(line, None)) is not None:
-                    section = new_section
-                elif section == AreaData._ReportSection.SLICE_LOGIC:
-                    if "LUT as Logic" in line:
-                        lut_logic = get_used_column(line)
-                    elif "LUT as Distributed RAM" in line:
-                        lut_ram = get_used_column(line)
-                    elif "LUT as Shift Register" in line:
-                        lut_reg = get_used_column(line)
-                    elif "Register as Flip Flop" in line:
-                        reg_ff = get_used_column(line)
-                    elif "Register as Latch" in line:
-                        reg_latch = get_used_column(line)
-                elif section == AreaData._ReportSection.DSP:
-                    if "DSPs" in line:
-                        dsp = get_used_column(line)
+                if "LUT as Logic" in line:
+                    lut_logic = get_used_column(line)
+                elif "LUT as Distributed RAM" in line:
+                    lut_ram = get_used_column(line)
+                elif "LUT as Shift Register" in line:
+                    lut_reg = get_used_column(line)
+                elif "Register as Flip Flop" in line:
+                    reg_ff = get_used_column(line)
+                elif "Register as Latch" in line:
+                    reg_latch = get_used_column(line)
+                elif "DSPs" in line:
+                    dsp = get_used_column(line)
 
         return AreaData(lut_logic, lut_ram, lut_reg, reg_ff, reg_latch, dsp)
-
-    class _ReportSection(Enum):
-        SLICE_LOGIC = 0
-        REGISTER_SUMMARY = 1
-        SLICE_LOGIC_DISTRIB = 2
-        MEMORY = 3
-        DSP = 4
-        IO_GT = 5
-        CLOCKING = 6
-        SPECIFIC_FEATURE = 7
-        PRIMITIVES = 8
-        BLACK_BOXES = 9
-        NETLISTS = 10
-
-    _DECODE: ClassVar[Mapping[str, "AreaData._ReportSection"]] = {
-        "1. Slice Logic": _ReportSection.SLICE_LOGIC,
-        "1.1 Summary of Registers by Type": _ReportSection.REGISTER_SUMMARY,
-        "2. Slice Logic Distribution": _ReportSection.SLICE_LOGIC_DISTRIB,
-        "3. Memory": _ReportSection.MEMORY,
-        "4. DSP": _ReportSection.DSP,
-        "5. IO and GT Specific": _ReportSection.IO_GT,
-        "6. Clocking": _ReportSection.CLOCKING,
-        "7. Specific Feature": _ReportSection.SPECIFIC_FEATURE,
-        "8. Primitives": _ReportSection.PRIMITIVES,
-        "9. Black Boxes": _ReportSection.BLACK_BOXES,
-        "10. Instantiated Netlists": _ReportSection.NETLISTS,
-    }
 
 
 @dataclass(frozen=True)
@@ -461,7 +457,7 @@ def cla() -> argparse.Namespace:
 def find_and_parse_reports(
     pattern: str, filename: str, dataType: Type[DataType]
 ) -> dict[str, DataType]:
-    full_path = os.path.join(pattern, filename)
+    full_path = pattern + filename
     full_path_tokens = full_path.split(os.path.sep)
 
     # Look for wildcards in path
@@ -567,7 +563,7 @@ def viz_dot(info: DataInfo[DotData]) -> TabPanel:
             chart_gen(
                 int,
                 lambda d: d.counts.get(comp, 0),
-                fig_args={"title": f"Number of {comp.value}"},
+                fig_args={"title": f"Number of {comp.value[0]}"},
             )
             for comp in comps
         ]
@@ -578,8 +574,53 @@ def viz_dot(info: DataInfo[DotData]) -> TabPanel:
         while idx < len(figs):
             rows.append(row(*figs[idx : min(len(figs), idx + 4)]))
             idx += 4
-
         return TabPanel(child=layout(*rows, sizing_mode="stretch_width"), title=title)
+
+    dataflow_groups: dict[str, set[DotData.ComponentType]] = {
+        "Merge-like components": {
+            DotData.ComponentType.MERGE,
+            DotData.ComponentType.CONTROL_MERGE,
+            DotData.ComponentType.MUX,
+        },
+        "Branch-like components": {
+            DotData.ComponentType.BRANCH,
+            DotData.ComponentType.CBRANCH,
+        },
+        "Memory operations": {DotData.ComponentType.LOAD, DotData.ComponentType.STORE},
+    }
+
+    meta_dataflow_rows: list[Row] = [
+        row(
+            chart_gen(
+                int,
+                lambda d: sum(d.counts.get(comp, 0) for comp in components),
+                fig_args={"title": title},
+            )
+        )
+        for title, components in dataflow_groups.items()
+    ]
+
+    meta_panel = TabPanel(
+        child=layout(
+            row(
+                chart_gen(
+                    int,
+                    lambda d: d.bb_count,
+                    fig_args={"title": f"Number of basic blocks"},
+                )
+            ),
+            row(
+                chart_gen(
+                    int,
+                    lambda d: d.num_components,
+                    fig_args={"title": f"Number of components"},
+                )
+            ),
+            *meta_dataflow_rows,
+            sizing_mode="stretch_width",
+        ),
+        title="Meta",
+    )
 
     dataflow_panel = get_category_panel(
         DotData.ComponentType.get_dataflow(), "Dataflow"
@@ -591,7 +632,7 @@ def viz_dot(info: DataInfo[DotData]) -> TabPanel:
     fcmp_panel = get_category_panel(DotData.ComponentType.get_fcmp(), "Floating CMP")
 
     tabs = Tabs(
-        tabs=[dataflow_panel, arithmetic_panel, icmp_panel, fcmp_panel],
+        tabs=[meta_panel, dataflow_panel, arithmetic_panel, icmp_panel, fcmp_panel],
         sizing_mode="stretch_width",
     )
     return TabPanel(child=tabs, title="Circuit")
@@ -600,7 +641,7 @@ def viz_dot(info: DataInfo[DotData]) -> TabPanel:
 def viz_simulation(info: DataInfo[SimData]) -> TabPanel:
     chart_gen = get_chart_generator(info)
     time = chart_gen(int, lambda d: d.time, fig_args={"title": "Simulation time (ns)"})
-    return TabPanel(child=row(time, sizing_mode="stretch_width"), title="Simuation")
+    return TabPanel(child=row(time, sizing_mode="stretch_width"), title="Simulation")
 
 
 def viz_area(info: DataInfo[AreaData]) -> TabPanel:
