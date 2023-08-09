@@ -345,7 +345,7 @@ mlir_to_handshake() {
         loop_rotate=""
     fi 
     "$DYNAMATIC_OPT_BIN" "$f_affine_mem" --allow-unregistered-dialect \
-        --lower-affine-to-scf $loop_rotate --arith-reduce-strength > "$f_scf"
+        --lower-affine-to-scf $loop_rotate > "$f_scf"
     exit_on_fail "Failed affine -> scf conversion" "Lowered to scf"
 
     # scf dialect -> standard dialect
@@ -357,7 +357,7 @@ mlir_to_handshake() {
    # std transformations
     "$DYNAMATIC_OPT_BIN" "$f_std" --allow-unregistered-dialect \
         --canonicalize --flatten-memref-row-major \
-        --flatten-memref-calls --push-constants \
+        --flatten-memref-calls --arith-reduce-strength --push-constants \
         > "$f_std_transformed"
     exit_on_fail "Failed to transform std IR" "Transformed std"
 
@@ -427,7 +427,7 @@ dynamatic () {
     # handshake transformations
     "$DYNAMATIC_OPT_BIN" "$f_handshake" --allow-unregistered-dialect \
         --handshake-concretize-index-type="width=32" \
-        --handshake-minimize-cst-width \
+        --handshake-minimize-cst-width --handshake-optimize-bitwidths \
         --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
         > "$f_handshake_transformed"    
     exit_on_fail "Failed to transform handshake IR" "Transformed handshake"
@@ -483,7 +483,7 @@ bridge () {
     "$DYNAMATIC_OPT_BIN" "$f_handshake" --allow-unregistered-dialect \
         --handshake-prepare-for-legacy \
         --handshake-concretize-index-type="width=32" \
-        --handshake-minimize-cst-width \
+        --handshake-minimize-cst-width --handshake-optimize-bitwidths="legacy" \
         --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
         > "$f_handshake_transformed"
     exit_on_fail "Failed to transform Handshake IR" "Transformed handshake"
