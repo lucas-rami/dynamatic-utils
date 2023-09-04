@@ -19,20 +19,19 @@
 
 int bicg(in_int_t mem0[N][N], inout_int_t mem1[N], inout_int_t mem2[N],
          in_int_t mem3[N], in_int_t mem4[N]) {
-  int i, j;
-
   int tmp_q = 0;
-
-  for (i = 0; i < NX; i++) {
+  for (unsigned i = 0; i < NX; i++) {
     tmp_q = mem2[i];
-    for (j = 0; j < NY; j++) {
+
+    for (unsigned j = 0; j < NY; j++) {
       int tmp = mem0[i][j];
       mem1[j] = mem1[j] + mem4[i] * tmp;
       tmp_q = tmp_q + tmp * mem3[j];
     }
+
     mem2[i] = tmp_q;
   }
-  return tmp_q; // + x;
+  return tmp_q;
 }
 
 #define AMOUNT_OF_TEST 1

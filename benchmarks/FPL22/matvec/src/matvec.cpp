@@ -9,18 +9,14 @@
 #define AMOUNT_OF_TEST 1
 
 int matvec(in_int_t mem0[NM][NM], in_int_t mem1[NM], out_int_t mem2[NM]) {
-  int i, j;
   int tmp = 0;
-
-  for (i = 0; i < NM; i++) {
+  for (unsigned i = 0; i < NM; i++) {
     tmp = 0;
-
-    for (j = 0; j < NM; j++) {
+    for (unsigned j = 0; j < NM; j++) {
       tmp += mem1[j] * mem0[i][j];
     }
     mem2[i] = tmp;
   }
-
   return tmp;
 }
 

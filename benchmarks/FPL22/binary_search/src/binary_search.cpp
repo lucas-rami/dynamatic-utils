@@ -18,16 +18,16 @@ int binary_search(in_int_t in0, in_int_t mem0[N]) {
   int idx_1 = -1;
   int idx_2 = -1;
 
-  for (int i = 0; i < N; i += 2) {
+  for (unsigned i = 0; i < N; i += 2) {
     if (mem0[i] == in0) {
-      idx_1 = i;
+      idx_1 = (int)i;
       break;
     }
   }
 
-  for (int i = 1; i < N; i += 2) {
+  for (unsigned i = 1; i < N; i += 2) {
     if (mem0[i] == in0) {
-      idx_2 = i;
+      idx_2 = (int)i;
       break;
     }
   }

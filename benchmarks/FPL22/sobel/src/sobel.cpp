@@ -6,13 +6,13 @@
 
 int sobel(in_int_t mem0[NM], out_int_t mem1[NM], in_int_t mem2[9],
           in_int_t mem3[9]) {
-  int SUM = 0;
-  for (int Y = 0; Y < 15; Y++) {
-    for (int X = 0; X < 15; X++) {
+  int sum = 0;
+  for (unsigned Y = 0; Y < 15; Y++) {
+    for (unsigned X = 0; X < 15; X++) {
       int sumX = 0;
       int sumY = 0;
 
-      int t1, t2, c1, c2, c3;
+      unsigned t1, t2, c1, c2, c3;
 
       /* image boundaries */
       t1 = Y == 0;
@@ -30,8 +30,8 @@ int sobel(in_int_t mem0[NM], out_int_t mem1[NM], in_int_t mem2[9],
       if (c3) {
         for (int I = -1; I <= 1; I++) {
           for (int J = -1; J <= 1; J++) {
-            sumX = sumX + (int)(mem0[X] * mem2[3 * I + J + 4]);
-            sumY = sumY + (int)(mem0[X] * mem3[3 * I + J + 4]);
+            sumX += mem0[X] * mem2[3 * I + J + 4];
+            sumY += mem0[X] * mem3[3 * I + J + 4];
           }
         }
 
@@ -46,14 +46,14 @@ int sobel(in_int_t mem0[NM], out_int_t mem1[NM], in_int_t mem2[9],
         if (sumY < 0)
           sumY = 0;
 
-        SUM += sumX + sumY;
+        sum += sumX + sumY;
       }
 
-      mem1[X + Y] = 255 - (unsigned char)(SUM);
+      mem1[X + Y] = 255 - (unsigned char)(sum);
     }
   }
 
-  return SUM;
+  return sum;
 }
 
 int main(void) {

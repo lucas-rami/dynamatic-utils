@@ -11,13 +11,10 @@
 #define AMOUNT_OF_TEST 1
 
 int fir(in_int_t mem0[1000], in_int_t mem1[1000]) {
-  int i;
   int tmp = 0;
-
-  for (i = 0; i < 1000; i++) {
+  for (unsigned i = 0; i < 1000; i++) {
     tmp += mem1[i] * mem0[999 - i];
   }
-
   return tmp;
 }
 

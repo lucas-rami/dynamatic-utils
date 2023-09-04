@@ -16,18 +16,16 @@
 
 int polynMult(out_int_t mem0[NTRU_N], in_int_t mem1[NTRU_N],
               in_int_t mem2[NTRU_N]) {
-  int k, i, p = 0;
-
-  for (k = 0; k < NTRU_N; k++) {
+  unsigned p = 0;
+  for (unsigned k = 0; k < NTRU_N; k++) {
     mem0[k] = 0;
+    unsigned i = 0;
     for (i = 1; i < NTRU_N - k; i++)
       mem0[k] += mem1[k + i] * mem2[NTRU_N - i];
     for (i = 0; i < k + 1; i++)
       mem0[k] += mem1[k - i] * mem2[i];
-
     p = i + k;
   }
-
   return p;
 }
 
