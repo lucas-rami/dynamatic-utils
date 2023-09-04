@@ -29,7 +29,7 @@ check_env_variables \
     HLS_VERIFIER_BIN \
     LEGACY_DYNAMATIC_PATH \
     LEGACY_DYNAMATIC_LLVM_PATH \
-    LEGACY_DYNAMATIC_ROOT \
+    LEGACY_DYNAMATIC_ROOT
 
 # Path to directory where to symlink all legacy Dynamatic binaries from
 SYMLINK_BIN_PATH="$LEGACY_DYNAMATIC_PATH/dhls/bin"
@@ -74,14 +74,16 @@ build_tool() {
     echo_section "Building $bin_name"
     
     # Go into the tool folder and build the binary if necessary
-    cd "$dir_path"
     if [[ -f "$bin_path" ]]; then
         echo_info "$bin_name binary found, the script will not try to rebuilt it."
     else
-        pwd
-        mkdir -p bin
-        make clean && make
+        mkdir -p "$dir_path"
+        cd "$(dirname $dir_path)"
+        make clean
+        make
+        return $?
     fi
+    return 0
 }
 
 echo_section "Cloning legacy Dynamatic"
@@ -176,8 +178,31 @@ fi
 
 # Build the tools that we care about
 build_tool "$DOT2VHDL_BIN"
+if [[ $? -ne 0 ]]; then
+    echo -e "\n[ERROR] Failed to build dot2vhdl tool"
+    exit 1
+fi
+
 build_tool "$BUFFERS_BIN"
+if [[ $? -ne 0 ]]; then
+    echo -e \
+"\n[ERROR] Failed to build buffers tool: if you are using a recent compiler, you may need
+to #include <cstdint> in:
+- $LEGACY_DYNAMATIC_ROOT/Buffers/src/DFnetlist_MG.cpp, and
+- $LEGACY_DYNAMATIC_ROOT/Buffers/src/DFnetlist_buffers.cpp
+"
+    exit 1
+fi
+
 build_tool "$HLS_VERIFIER_BIN"
+if [[ $? -ne 0 ]]; then
+    echo -e \
+"\n[ERROR] Failed to build HLS verifier tool: if you are using a recent compiler, you may
+need to #include <sstream> in:
+- $LEGACY_DYNAMATIC_ROOT/hls_verifier/HLSVerifier/CInjector.cpp
+"
+    exit 1
+fi
 
 echo ""
 echo_info "All done!"
