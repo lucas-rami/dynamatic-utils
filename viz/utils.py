@@ -41,29 +41,14 @@ BokehParams = Mapping[str, Any] | None
 
 def barchart(
     data: np.ndarray,
-    best_norm_fit: bool = False,
-    bin_size: Optional[int] = None,
     fig_args: BokehParams = None,
     vbar_args: BokehParams = None,
-    line_args: BokehParams = None,
 ) -> figure:
     # Arguments dictionaries
-    if fig_args is None:
-        fig_args = {}
-    if vbar_args is None:
-        vbar_args = {}
-    if line_args is None:
-        line_args = {}
-
+    fig_args = {} if fig_args is None else fig_args
+    vbar_args = {} if vbar_args is None else vbar_args
     if len(data) == 0:
         return missing_data(fig_args)
-
-    # Very basic binning strategy
-    if bin_size is not None:
-        data_int = np.empty(data.shape, dtype=int)
-        for i in range(len(data)):
-            data_int[i] = floor(data[i] / bin_size)
-        data = data_int
 
     # Determine extent of X axis
     min_val = np.min(data)
@@ -93,28 +78,6 @@ def barchart(
     # Draw vertical bars
     vbar_base_args = {"x": x, "top": full_counts, "color": COLORS[0]}
     fig.vbar(**{**vbar_base_args, **vbar_args})
-
-    # Draw line for best normal fit if requested
-    if best_norm_fit:
-        # Generate data for normal
-        mean, var = distributions.norm.fit(data)  # type:ignore
-        fitted_data = distributions.norm.pdf(x, mean, var)  # type:ignore
-
-        # Add extra y range
-        y_max = np.max(fitted_data)
-        fig.extra_y_ranges = {"fit": Range1d(start=0.0, end=y_max * 1.1)}  # type: ignore
-
-        # Draw the line
-        line_base_args = {
-            "x": x,
-            "y": fitted_data,
-            "line_color": COLORS[0],
-            "line_width": 4,
-            "legend_label": "Best normal fit",
-            "y_range_name": "fit",
-        }
-        fig.line(**{**line_base_args, **line_args})
-
     return fig
 
 
@@ -162,6 +125,7 @@ def nested_barchart(
     nested_labels: Sequence[str],
     data: Mapping[str, np.ndarray],
     positive: bool = True,
+    legend: bool = True,
     fig_args: BokehParams = None,
     vbar_args: BokehParams = None,
 ) -> figure:
@@ -233,15 +197,17 @@ def nested_barchart(
             "width": bar_width,
             "color": COLORS[i],
             "line_color": "white",
-            "legend_label": label,
         }
+        if legend:
+            vbar_base_args["legend_label"] = label
         fig.vbar(**{**vbar_base_args, **vbar_args})
         dodge_value += space_between_bars + bar_width
 
     fig.x_range.range_padding = 0.1
     fig.xgrid.grid_line_color = None
-    fig.legend.location = "top_left"
-    fig.legend.orientation = "horizontal"
+    if legend:
+        fig.legend.location = "top_left"
+        fig.legend.orientation = "horizontal"
 
     return fig
 

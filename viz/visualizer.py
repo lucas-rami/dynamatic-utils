@@ -17,7 +17,6 @@ from utils import BokehParams, nested_barchart, save_to_disk
 # Typing
 from typing import (
     Callable,
-    ClassVar,
     Final,
     Generic,
     Mapping,
@@ -49,6 +48,18 @@ class ChartGenerator(Generic[DataStorage], Protocol):
         dtype: Type[T],
         extract: Callable[[DataStorage], T],
         positive: bool = ...,
+        fig_args: BokehParams = ...,
+        vbar_args: BokehParams = ...,
+    ) -> figure:
+        ...
+
+
+class GeomeanGenerator(Generic[DataStorage], Protocol):
+    def __call__(
+        self,
+        dtype: Type[T],
+        name: str,
+        extract: Callable[[DataStorage], T],
         fig_args: BokehParams = ...,
         vbar_args: BokehParams = ...,
     ) -> figure:
@@ -381,6 +392,14 @@ class TimingData:
 # ===------------------------------------------------------------------------------=== #
 
 
+def geometric_mean(data: np.ndarray) -> float:
+    filtered_data = data[data != 0]
+    if len(filtered_data) == 0:
+        return 0.0
+    logs = np.log(filtered_data)
+    return np.exp(logs.mean())
+
+
 def split_on_whitespace(line: str) -> list[str]:
     tokens: list[str] = []
 
@@ -437,6 +456,13 @@ def cla() -> argparse.Namespace:
         "--flows",
         metavar="names",
         help="Flow names (comma-separated, one per provided report path)",
+    )
+    parser.add_argument(
+        "--period",
+        metavar="period",
+        type=float,
+        default=4,
+        help="Target period to assume in ns (only relevant for simulation results)",
     )
     parser.add_argument(
         "-o",
@@ -540,10 +566,11 @@ def get_chart_generator(
                 flow: np.fromiter((extract(d) for d in flow_data), dtype=dtype)
                 for flow, flow_data in info.data.items()
             },
-            positive,
+            positive=positive,
             fig_args={
                 "height": 400,
                 "sizing_mode": "stretch_width",
+                "tools": "reset,save,xwheel_zoom,ywheel_zoom",
                 **base_fig_args,
                 **fig_args,
             },
@@ -551,6 +578,50 @@ def get_chart_generator(
         )
 
     return get_chart
+
+
+def get_geomean_generator(
+    info: DataInfo[DataStorage],
+    base_fig_args: BokehParams = None,
+    base_vbar_args: BokehParams = None,
+) -> GeomeanGenerator[DataStorage]:
+    base_fig_args = {} if base_fig_args is None else base_fig_args
+    base_vbar_args = {} if base_vbar_args is None else base_vbar_args
+
+    def geomean_chart_gen(
+        dtype: Type[T],
+        name: str,
+        extract: Callable[[DataStorage], T],
+        fig_args: BokehParams = None,
+        vbar_args: BokehParams = None,
+    ) -> figure:
+        fig_args = {} if fig_args is None else fig_args
+        vbar_args = {} if vbar_args is None else vbar_args
+        return nested_barchart(
+            [name],
+            list(info.data),
+            {
+                flow: np.array(
+                    [
+                        geometric_mean(
+                            np.fromiter((extract(d) for d in flow_data), dtype=dtype)
+                        )
+                    ]
+                )
+                for flow, flow_data in info.data.items()
+            },
+            legend=False,
+            fig_args={
+                "height": 400,
+                "width": 250,
+                "title": "Geometric mean",
+                **base_fig_args,
+                **fig_args,
+            },
+            vbar_args={**base_vbar_args, **vbar_args},
+        )
+
+    return geomean_chart_gen
 
 
 def viz_dot(info: DataInfo[DotData]) -> TabPanel:
@@ -638,39 +709,72 @@ def viz_dot(info: DataInfo[DotData]) -> TabPanel:
     return TabPanel(child=tabs, title="Circuit")
 
 
-def viz_simulation(info: DataInfo[SimData]) -> TabPanel:
+def viz_simulation(info: DataInfo[SimData], period: float) -> TabPanel:
     chart_gen = get_chart_generator(info)
-    time = chart_gen(int, lambda d: d.time, fig_args={"title": "Simulation time (ns)"})
-    return TabPanel(child=row(time, sizing_mode="stretch_width"), title="Simulation")
+    geo_gen = get_geomean_generator(info)
+    extract = lambda d: d.time / period
+    time = chart_gen(
+        int,
+        extract,
+        fig_args={"title": "Simulation time (clock cycles)"},
+    )
+    geo = geo_gen(float, "Simulation time", extract)
+    return TabPanel(
+        child=row(time, geo, sizing_mode="stretch_width"), title="Simulation"
+    )
 
 
 def viz_area(info: DataInfo[AreaData]) -> TabPanel:
     chart_gen = get_chart_generator(info)
+    geo_gen = get_geomean_generator(info)
 
     # Quick shortcut
-    def area_gen(extract: Callable[[AreaData], int], title: str) -> figure:
-        return chart_gen(int, extract, fig_args={"title": title})
+    def area_gen(
+        extract: Callable[[AreaData], int], title: str
+    ) -> tuple[figure, figure]:
+        return (
+            chart_gen(int, extract, fig_args={"title": title}),
+            geo_gen(int, title, extract),
+        )
 
-    lut = area_gen(lambda r: r.luts, "Number of LUTs")
-    lut_logic = area_gen(lambda r: r.lut_logic, "Number of LUTs (as logic)")
-    lut_ram = area_gen(lambda r: r.lut_ram, "Number of LUTs (as distributed RAM)")
-    lut_reg = area_gen(lambda r: r.lut_reg, "Number of LUTs (as shift register)")
-    reg = area_gen(lambda r: r.regs, "Number of registers")
-    reg_ff = area_gen(lambda r: r.reg_ff, "Number of registers (as flip-flop)")
-    reg_latch = area_gen(lambda r: r.reg_latch, "Number of registers (as latch)")
-    dsp = area_gen(lambda r: r.dsp, "Number of DSPs")
+    lut, geo_lut = area_gen(lambda r: r.luts, "Number of LUTs")
+    lut_logic, geo_lut_logic = area_gen(
+        lambda r: r.lut_logic, "Number of LUTs (as logic)"
+    )
+    lut_ram, geo_lut_ram = area_gen(
+        lambda r: r.lut_ram, "Number of LUTs (as distributed RAM)"
+    )
+    lut_reg, geo_lut_reg = area_gen(
+        lambda r: r.lut_reg, "Number of LUTs (as shift register)"
+    )
+    reg, geo_reg = area_gen(lambda r: r.regs, "Number of registers")
+    reg_ff, geo_reg_ff = area_gen(
+        lambda r: r.reg_ff, "Number of registers (as flip-flop)"
+    )
+    reg_latch, geo_reg_latch = area_gen(
+        lambda r: r.reg_latch, "Number of registers (as latch)"
+    )
+    dsp, geo_dsp = area_gen(lambda r: r.dsp, "Number of DSPs")
 
     panel_lut = TabPanel(
         child=layout(
-            row(lut), row(lut_logic, lut_ram, lut_reg), sizing_mode="stretch_width"
+            row(lut, geo_lut),
+            row(lut_logic, geo_lut_logic, lut_ram, geo_lut_ram, lut_reg, geo_lut_reg),
+            # row(geo_lut_logic, geo_lut_ram, geo_lut_reg),
+            sizing_mode="stretch_width",
         ),
         title="LUT Utilization",
     )
     panel_reg = TabPanel(
-        child=layout(row(reg), row(reg_ff, reg_latch), sizing_mode="stretch_width"),
+        child=layout(
+            row(reg, geo_reg),
+            row(reg_ff, reg_latch),
+            row(geo_reg_ff, geo_reg_latch),
+            sizing_mode="stretch_width",
+        ),
         title="Register Utilization",
     )
-    panel_dsp = TabPanel(child=dsp, title="DSP Utilization")
+    panel_dsp = TabPanel(child=row(dsp, geo_dsp), title="DSP Utilization")
 
     return TabPanel(
         child=Tabs(tabs=[panel_lut, panel_reg, panel_dsp], sizing_mode="stretch_width"),
@@ -680,6 +784,7 @@ def viz_area(info: DataInfo[AreaData]) -> TabPanel:
 
 def viz_timing(info: DataInfo[TimingData]) -> TabPanel:
     chart_gen = get_chart_generator(info)
+    geo_gen = get_geomean_generator(info)
 
     slack = chart_gen(
         float,
@@ -692,12 +797,19 @@ def viz_timing(info: DataInfo[TimingData]) -> TabPanel:
             )
         },
     )
+    extract_data_delay = lambda r: r.requirement - r.slack
     data_delay = chart_gen(
-        float, lambda r: r.data_path, fig_args={"title": "Data path delay (ns)"}
+        float,
+        extract_data_delay,
+        fig_args={"title": "Critical path delay (ns)"},
     )
+    geo_delay = geo_gen(float, "Critical path delay (ns)", extract_data_delay)
 
     return TabPanel(
-        child=column(slack, data_delay, sizing_mode="stretch_width"), title="Timing"
+        child=layout(
+            row(slack), row(data_delay, geo_delay), sizing_mode="stretch_width"
+        ),
+        title="Timing",
     )
 
 
@@ -710,6 +822,7 @@ def visualizer():
     area_filename: str | None = args.area
     timing_filename: str | None = args.timing
     flows: str | None = args.flows
+    period: float = args.period
     output: str | None = args.output
 
     def get_flow_names() -> tuple[str]:
@@ -775,7 +888,7 @@ def visualizer():
 
     if sim_filename is not None:
         info = collect_data(sim_filename, SimData)
-        panels.append(viz_simulation(info))
+        panels.append(viz_simulation(info, period))
 
     if area_filename is not None:
         info = collect_data(area_filename, AreaData)
