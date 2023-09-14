@@ -36,9 +36,9 @@ This is largely untested, so your mileage *will* vary.
 
 ### [`runner.sh` script](runner.sh)
 
-The `runner.sh` script is extremely useful to run a sequence of transformations/conversions steps on a range of benchmarks at the same time. At the current time, it supports automatic compilation with legacy Dynamatic and Dynamatic++ (no flags, done automatically), simulation using legacy Dynamatic's backend and Modelsim (`--simulate`), and synthesization using legacy Dynamatic's backend and Vivado HLS (`--synthesize`).
+The `runner.sh` script is extremely useful to run a sequence of transformations or conversion steps on a range of benchmarks at the same time. At the current time, it supports automatic compilation with legacy Dynamatic and Dynamatic++ (no flags, done automatically), simulation using legacy Dynamatic's backend and Modelsim (`--simulate`), and synthesization using legacy Dynamatic's backend and Vivado HLS (`--synthesize`).
 
-The script uses a couple core concepts to allow the user to personalize their runs, which are described below. The script is configured using command-line arguments (and internally uses environment variables defined in [.env](.env)). You can also run `./runner --help` to see the command line interface and available options.
+The script uses a couple core concepts to allow the user to personalize their runs, which are described below. The script is configured using command-line arguments (and internally uses environment variables defined in [.env](.env)). You can also run `./runner.sh --help` to see the command line interface and available options.
 
 - *Testsuites* (`--testsuite <testsuite-name>`) represent a list of benchmarks on which the transformations will be applied sequentially. Current options are:
     - `dynamatic`: legacy Dynamatic's regression tests, stored in legacy Dynamatic's repository
