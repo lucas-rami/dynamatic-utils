@@ -88,7 +88,9 @@ class EdgeInfo:
 
     def __str__(self) -> str:
         attr: list[str] = [f'{name}="{val}"' for (name, val) in self.attributes.items()]
-        return f"{self.src_dot_name} -> {self.dst_dot_name} [{' '.join(attr)}]\n"
+        return (
+            f"\"{self.src_dot_name}\" -> \"{self.dst_dot_name}\" [{' '.join(attr)}]\n"
+        )
 
 
 def dot_is_edge(line: str) -> bool:
@@ -97,15 +99,25 @@ def dot_is_edge(line: str) -> bool:
 
 
 def dot_get_edge_endpoints(line: str) -> tuple[str, str, str, str] | None:
+    if not dot_is_edge(line):
+        return None
+
+    # Extract source and destination endpoints
     tokens = line.strip().split(" ")
-    if len(tokens) < 3 or tokens[1] != "->":
-        return
+    src: str = tokens[0]
+    dst: str = tokens[2]
+
+    # Remove potential quotes around endpoints
+    if src.startswith('"') and src.endswith('"'):
+        src = src[1:-1]
+    if dst.startswith('"') and dst.endswith('"'):
+        dst = dst[1:-1]
 
     # Handle special case where name starts with _
-    src = tokens[0][1:] if tokens[0].startswith("_") else tokens[0]
-    dst = tokens[2][1:] if tokens[2].startswith("_") else tokens[2]
+    src_fixed = src[1:] if src.startswith("_") else src
+    dst_fixed = dst[1:] if dst.startswith("_") else dst
 
-    return src, tokens[0], dst, tokens[2]
+    return src_fixed, src, dst_fixed, dst
 
 
 def dot_get_attributes(line: str) -> dict[str, str]:
@@ -149,7 +161,6 @@ def dot_get_attributes(line: str) -> dict[str, str]:
         assert attr_value is not None
 
         # Add the attribute
-        # print(f"Adding attribute {attr_name} -> {attr_value}")
         all_attributes[attr_name] = attr_value
 
         # Eat up the space to the next alphanumeric character, if any
@@ -244,12 +255,11 @@ def print_dot(
 def gen_dots(dot_file: str, log_file: str, out_path: str, n_phases: int = -1):
     og_dot, edges = parse_og_dot(dot_file)
 
-    # Delete output dir if present and recreate it
+    # Create output directory
     dot_idx: int = 0
     dot_name: str = Path(dot_file).stem
     out_dir: str = os.path.join(out_path, "dots")
     out_dot_name: str = os.path.join(out_dir, dot_name)
-    subprocess.run(f"rm -rf {out_dir}", shell=True)
     subprocess.run(f"mkdir -p {out_dir}", shell=True)
 
     id_to_signal: dict[int, EndPoint] = {}
@@ -261,7 +271,6 @@ def gen_dots(dot_file: str, log_file: str, out_path: str, n_phases: int = -1):
             tokens: list[str] = line.split(" ")
             if len(tokens) == 0:
                 break
-
             if tokens[0] == "D":
                 # This defines a signal to id mapping
                 endpoint = EndPoint.from_full_name(tokens[1])
@@ -304,8 +313,8 @@ def create_video(dot_file: str, out_path: str):
     )
 
 
-def dots2gif() -> None:
-    # We need a path to a DOT and to a WLF
+def wlf2mp4() -> None:
+    # We need a path to a DOT and to a WLF, as well as an output path
     if len(sys.argv) != 4:
         raise Exception("Script needs 3 arguments")
 
@@ -313,9 +322,12 @@ def dots2gif() -> None:
     wlf_file: str = sys.argv[2]
     out_path: str = sys.argv[3]
 
+    # Delete output folder if it exists
+    subprocess.run(f"rm -rf {out_path}", shell=True)
+
     log_file: str = gen_log_file(wlf_file)
     print("Generating DOTs...")
-    gen_dots(dot_file, log_file, out_path, n_phases=1000)
+    gen_dots(dot_file, log_file, out_path, n_phases=100)
     print("Converting to PNGs...")
     convert_to_png(dot_file, out_path)
     print("Creating video...")
@@ -323,4 +335,4 @@ def dots2gif() -> None:
 
 
 if __name__ == "__main__":
-    dots2gif()
+    wlf2mp4()
