@@ -760,7 +760,6 @@ def viz_area(info: DataInfo[AreaData]) -> TabPanel:
         child=layout(
             row(lut, geo_lut),
             row(lut_logic, geo_lut_logic, lut_ram, geo_lut_ram, lut_reg, geo_lut_reg),
-            # row(geo_lut_logic, geo_lut_ram, geo_lut_reg),
             sizing_mode="stretch_width",
         ),
         title="LUT Utilization",
@@ -768,13 +767,14 @@ def viz_area(info: DataInfo[AreaData]) -> TabPanel:
     panel_reg = TabPanel(
         child=layout(
             row(reg, geo_reg),
-            row(reg_ff, reg_latch),
-            row(geo_reg_ff, geo_reg_latch),
+            row(reg_ff, geo_reg_ff, reg_latch, geo_reg_latch),
             sizing_mode="stretch_width",
         ),
         title="Register Utilization",
     )
-    panel_dsp = TabPanel(child=row(dsp, geo_dsp), title="DSP Utilization")
+    panel_dsp = TabPanel(
+        child=row(dsp, geo_dsp, sizing_mode="stretch_width"), title="DSP Utilization"
+    )
 
     return TabPanel(
         child=Tabs(tabs=[panel_lut, panel_reg, panel_dsp], sizing_mode="stretch_width"),
