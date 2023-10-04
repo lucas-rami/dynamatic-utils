@@ -212,67 +212,19 @@ legacy_dot2vhdl() {
     return 0
 }
 
-# Runs legacy Dynamatic's smart buffer placement pass on an input DOT.
-#   $1: absolute path to benchmark directory (without trailing slash)
-smart_buffers() {
-    local bench_path="$1"
-    local name="$(basename $bench_path)"
-    local d_comp="$bench_path/$OUTPUT_PATH/comp"
-
-    # Generated directories/files
-    local d_buffers="$d_comp/buffers"
-    local f_dfg_buf_dot="$d_comp/${name}_graph_buf.dot"
-    local f_dfg_buf_png="$d_comp/${name}_graph_buf.png"
-    local f_cfg_buf_dot="$d_comp/${name}_bbgraph_buf.dot"
-    local f_cfg_buf_png="$d_comp/${name}_bbgraph_buf.png"
-    local f_report="$d_buffers/report.txt"
-
-    reset_output_dir "$d_buffers"
-
-    # Run smart buffer placement
-    echo_info "Placing smart buffers"
-    "$BUFFERS_BIN" buffers -filename="$d_comp/$name" -period=4 \
-        -model_mode=mixed -solver=gurobi_cl > $f_report
-    echo_status "Failed to place smart buffers" "Placed smart buffers"
-    if [[ $? -ne 0 ]]; then
-        rm -f *.sol *.lp *.txt 
-        return 1 
-    fi
-
-    # Move all generated files to output folder 
-    mv *.log *.sol *.lp *.txt "$d_buffers" > /dev/null
-
-    # Convert bufferized DFG DOT graph to PNG
-    dot -Tpng "$f_dfg_buf_dot" > "$f_dfg_buf_png"
-    echo_status "Failed to convert bufferized DFG DOT to PNG" "Converted bufferized DFG DOT to PNG"
-
-    # Convert bufferized CFG DOT graph to PNG
-    dot -Tpng "$f_cfg_buf_dot" > "$f_cfg_buf_png"
-    echo_status "Failed to convert bufferized CFG DOT to PNG" "Converted bufferized CFG DOT to PNG"
-
-    # Rename unbufferized DOTS
-    mv "$d_comp/$name.dot" "$d_comp/${name}_nobuf.dot" 
-    mv "$d_comp/$name.png" "$d_comp/${name}_nobuf.png" 
-    mv "$d_comp/${name}_bbgraph.dot" "$d_comp/${name}_bbgraph_nobuf.dot" 
-    mv "$d_comp/${name}_bbgraph.png" "$d_comp/${name}_bbgraph_nobuf.png" 
-
-    # Rename bufferized DOTs
-    mv "$f_dfg_buf_dot" "$d_comp/$name.dot" 
-    mv "$f_dfg_buf_png" "$d_comp/$name.png" 
-    mv "$f_cfg_buf_dot" "$d_comp/${name}_bb_graph.dot"
-
-    return $ret
-}
-
-# Runs Dynamatic++'s profiler tool. Uses and expects a std-level MLIR file
+# Runs Dynamatic++'s profiler tool. Input and output files are read from/written
+# to "$(basename $1)/$OUTPUT_PATH/comp/
 # located at "$(basename $1)/$OUTPUT_PATH/comp/std.mlir".
 #   $1: absolute path to benchmark directory (without trailing slash)
-#   $2: 1 if running the profiler in legacy-mode, 0 otherwise
+#   $2: input filename (std-level IR), without extension (assumes .mlir)
+#   $3: 1 if running the profiler in legacy-mode, 0 otherwise
 run_dynamatic_profiler() {
     local bench_path="$1"
     local name="$(basename $bench_path)"
     local d_comp="$bench_path/$OUTPUT_PATH/comp"
-    local legacy_mode=$2
+
+    local f_src="$d_comp/$2.mlir"
+    local legacy_mode=$3
 
     # Generated files
     local f_out=""
@@ -293,7 +245,7 @@ run_dynamatic_profiler() {
     if [[ $legacy_mode -ne 0 ]]; then
         print_dot="--print-dot"
     fi
-    "$DYNAMATIC_PROFILER_BIN" "$d_comp/std.mlir" --top-level-function="$name" \
+    "$DYNAMATIC_PROFILER_BIN" "$f_src" --top-level-function="$name" \
         --input-args-file="$test_input" $print_dot > $f_out 
     echo_status "Failed to run profiler" "Profiled std-level kernel"
     if [[ $? -ne 0 ]]; then
@@ -305,6 +257,132 @@ run_dynamatic_profiler() {
         dot -Tpng "$f_out" > "$f_cfg_png"
         exit_on_fail "Failed to convert CFG DOT to PNG" "Converted CFG DOT to PNG"
     fi
+    return 0
+}
+
+# Runs Dynamatic++'s smart buffer placement pass on an input Handshake-level IR.
+#   $1: absolute path to benchmark directory (without trailing slash)
+#   $2: path to input Handshake-level IR
+smart_buffers() {
+    local bench_path="$1"
+    local f_handshake_input="$2"
+    local name="$(basename $bench_path)"
+    local d_comp="$bench_path/$OUTPUT_PATH/comp"
+   
+    # Generated directories/files
+    local f_handshake_buffered="$d_comp/handshake_buffered.mlir"
+
+    # Run profiler    
+    run_dynamatic_profiler "$1" "std_dyn_transformed" 0
+    echo_status "Failed to run frequency profiler" "Ran frequency profiler"
+    if [[ $? -ne 0 ]]; then
+        return 1 
+    fi
+
+    # Run Buffer placement
+    echo_info "Placing smart buffers"
+    "$DYNAMATIC_OPT_BIN" "$f_handshake_input" \
+        --allow-unregistered-dialect \
+        --handshake-set-buffering-properties="version=fpga20" \
+        --handshake-place-buffers="timing-models=$DYNAMATIC_PATH/data/components.json frequencies=$d_comp/frequencies.csv dump-logs" \
+        > "$f_handshake_buffered"
+    echo_status "Failed to buffer IR" "Buffered handshake"
+    local ret=$?
+    mv buffer-placement "$d_comp" > /dev/null 2>&1 
+    if [[ $ret -ne 0 ]]; then
+        return 1 
+    fi
+    return 0
+}
+
+# Runs legacy Dynamatic's smart buffer placement pass on an input DOT.
+#   $1: absolute path to benchmark directory (without trailing slash)
+legacy_smart_buffers() {
+    local bench_path="$1"
+    local name="$(basename $bench_path)"
+    local d_comp="$bench_path/$OUTPUT_PATH/comp"
+
+    # Generated directories/files
+    local d_buffers="$d_comp/buffers"
+    local f_dfg_buf_dot="$d_comp/${name}_graph_buf.dot"
+    local f_dfg_buf_png="$d_comp/${name}_graph_buf.png"
+    local f_cfg_buf_dot="$d_comp/${name}_bbgraph_buf.dot"
+    local f_cfg_buf_png="$d_comp/${name}_bbgraph_buf.png"
+    local f_report="$d_buffers/report.txt"
+
+    reset_output_dir "$d_buffers"
+
+    # Run smart buffer placement
+    echo_info "Placing smart buffers"
+    "$BUFFERS_BIN" buffers -filename="$d_comp/$name" -period=4 \
+        -model_mode=mixed -solver=gurobi_cl > "$f_report"
+    echo_status "Failed to place smart buffers" "Placed smart buffers"
+    if [[ $? -ne 0 ]]; then
+        rm -f *.sol *.lp *.txt > /dev/null 2>&1 
+        return 1 
+    fi
+
+    # Move all generated files to output folder 
+    mv *.log *.sol *.lp *.txt "$d_buffers" > /dev/null 2>&1
+
+    # Convert bufferized DFG DOT graph to PNG
+    dot -Tpng "$f_dfg_buf_dot" > "$f_dfg_buf_png"
+    exit_on_fail "Failed to convert bufferized DFG DOT to PNG" "Converted bufferized DFG DOT to PNG"
+
+    # Convert bufferized CFG DOT graph to PNG
+    dot -Tpng "$f_cfg_buf_dot" > "$f_cfg_buf_png"
+    exit_on_fail "Failed to convert bufferized CFG DOT to PNG" "Converted bufferized CFG DOT to PNG"
+
+    # Rename unbufferized DOTS
+    mv "$d_comp/$name.dot" "$d_comp/${name}_nobuf.dot" 
+    mv "$d_comp/$name.png" "$d_comp/${name}_nobuf.png" 
+    mv "$d_comp/${name}_bbgraph.dot" "$d_comp/${name}_bbgraph_nobuf.dot" 
+    mv "$d_comp/${name}_bbgraph.png" "$d_comp/${name}_bbgraph_nobuf.png" 
+
+    # Rename bufferized DOTs
+    mv "$f_dfg_buf_dot" "$d_comp/$name.dot" 
+    mv "$f_dfg_buf_png" "$d_comp/$name.png" 
+    mv "$f_cfg_buf_dot" "$d_comp/${name}_bb_graph.dot"
+
+    return $ret
+}
+
+# Exports Handshake-level IR to DOT using Dynamatic++, then converts the DOT to
+# a PNG using xdot. Input and output files are read from/written to
+# "$(basename $1)/$OUTPUT_PATH/comp/
+#   $1: absolute path to benchmark directory (without trailing slash)
+#   $2: input filename (Handshake-level IR), without extension (assumes .mlir)
+#   $3: mode to run the tool in; options are "visual", "legacy", "legacy-buffers"
+#   $4: edge style to use in the DOT; options are "spline", "ortho"
+#   $5: output filename (if not provided, same as the input filename), without
+#       extension (will use .dot and .png)
+export_dot() {
+    local bench_path="$1"
+    local name="$(basename $bench_path)"
+    local d_comp="$bench_path/$OUTPUT_PATH/comp"
+    
+    local f_src="$d_comp/$2.mlir"
+    local mode="$3"
+    local edge_style="$4"
+
+    # Generated directories/files
+    local f_dot="$d_comp/$name.dot"
+    local f_png="$d_comp/$name.png"
+    if [[ ! -z $5 ]]; then
+        f_dot="$d_comp/$5.dot"
+        f_png="$d_comp/$5.png"
+    fi
+
+    # Export to DOT
+    "$DYNAMATIC_EXPORT_DOT_BIN" "$f_src" "--mode=$mode" \
+        "--edge-style=$edge_style" \
+        "--timing-models=$DYNAMATIC_PATH/data/components.json" \
+        > "$f_dot"
+    exit_on_fail "Failed to create DOT" "Created DOT"
+
+    # Convert DOT graph to PNG
+    dot -Tpng "$f_dot" > "$f_png"
+    exit_on_fail "Failed to convert DOT to PNG" "Converted DOT to PNG"
     return 0
 }
 
@@ -321,8 +399,10 @@ mlir_to_handshake() {
     local f_affine="$d_comp/affine.mlir"
     local f_affine_mem="$d_comp/affine_mem.mlir"
     local f_scf="$d_comp/scf.mlir"
+    local f_scf_transformed="$d_comp/scf_transformed.mlir"
     local f_std="$d_comp/std.mlir"
-    local f_std_transformed="$d_comp/std_tansformed.mlir"
+    local f_std_transformed="$d_comp/std_transformed.mlir"
+    local f_std_dyn_transformed="$d_comp/std_dyn_transformed.mlir"
     local f_handshake="$d_comp/handshake.mlir"
 
     reset_output_dir "$d_comp"
@@ -340,70 +420,44 @@ mlir_to_handshake() {
     exit_on_fail "Failed memory analysis" "Passed memory analysis"
 
     # affine dialect -> scf dialect
+    "$DYNAMATIC_OPT_BIN" "$f_affine_mem" --allow-unregistered-dialect \
+        --lower-affine-to-scf > "$f_scf"
+    exit_on_fail "Failed affine -> scf conversion" "Lowered to scf"
+
+    # scf transformations
 	local loop_rotate="--scf-rotate-for-loops"
     if [[ $NO_LOOP_ROTATE -ne 0 ]]; then
         loop_rotate=""
     fi 
-    "$DYNAMATIC_OPT_BIN" "$f_affine_mem" --allow-unregistered-dialect \
-        --lower-affine-to-scf $loop_rotate > "$f_scf"
-    exit_on_fail "Failed affine -> scf conversion" "Lowered to scf"
+    "$DYNAMATIC_OPT_BIN" "$f_scf" --allow-unregistered-dialect \
+        --scf-simple-if-to-select $loop_rotate \
+        > "$f_scf_transformed"
+    exit_on_fail "Failed to transform scf IR" "Transformed scf"
 
-    # scf dialect -> standard dialect
-    "$MLIR_OPT_BIN" "$f_scf" --allow-unregistered-dialect --convert-scf-to-cf \
-        --canonicalize --cse --sccp --symbol-dce --control-flow-sink \
-        --loop-invariant-code-motion --canonicalize > "$f_std"
+    # scf dialect -> std dialect
+    "$DYNAMATIC_OPT_BIN" "$f_scf_transformed" --allow-unregistered-dialect \
+        --lower-scf-to-cf > "$f_std"
     exit_on_fail "Failed scf -> std conversion" "Lowered to std"
 
-   # std transformations
-    "$DYNAMATIC_OPT_BIN" "$f_std" --allow-unregistered-dialect \
-        --canonicalize --flatten-memref-row-major \
-        --flatten-memref-calls --arith-reduce-strength --push-constants \
+    # std transformations (1)
+    "$MLIR_OPT_BIN" "$f_std" --allow-unregistered-dialect --canonicalize --cse \
+        --sccp --symbol-dce --control-flow-sink --loop-invariant-code-motion \
+        --canonicalize \
         > "$f_std_transformed"
-    exit_on_fail "Failed to transform std IR" "Transformed std"
+    exit_on_fail "Failed to transform std IR (1)" "Transformed std (1)"
 
-    # standard dialect -> handshake dialect
+    # std transformations (2)   
     "$DYNAMATIC_OPT_BIN" "$f_std_transformed" --allow-unregistered-dialect \
+        --flatten-memref-row-major --flatten-memref-calls \
+        --arith-reduce-strength --push-constants \
+        > "$f_std_dyn_transformed"
+    exit_on_fail "Failed to transform std IR (2)" "Transformed std (2)"
+
+    # std dialect -> handshake dialect
+    "$DYNAMATIC_OPT_BIN" "$f_std_dyn_transformed" --allow-unregistered-dialect \
         --lower-std-to-handshake-fpga18="id-basic-blocks" \
         > "$f_handshake"
     exit_on_fail "Failed std -> handshake conversion" "Lowered to handshake"
-    return 0
-}
-
-# Exports Handshake-level IR to DOT using Dynamatic++, then converts the DOT to
-# a PNG using xdot. Output files are written inside
-# "$(basename $1)/$OUTPUT_PATH/comp/
-#   $1: absolute path to benchmark directory (without trailing slash)
-#   $2: absolute path to the Handshake-level IR to convert to DOT
-#   $3: 1 if running the DOT exporter in legacy mode, 0 otherwise
-#   $3: 1 if running the DOT exporter in debug mode, 0 otherwise
-export_dot() {
-    local bench_path="$1"
-    local name="$(basename $bench_path)"
-    local f_src="$2"
-    local legacy_mode="$3"
-    local debug_mode="$4"
-
-    # Generated directories/files
-    local d_comp="$bench_path/$OUTPUT_PATH/comp"
-    local f_dot="$d_comp/$name.dot"
-    local f_png="$d_comp/$name.png"
-
-    # Setup export arguments
-    local export_args=""
-    if [[ $legacy_mode -ne 0 ]]; then
-        export_args="$export_args--legacy "
-    fi
-    if [[ $debug_mode -ne 0 ]]; then
-        export_args="$export_args--dot-debug "
-    fi
-
-    # Export to DOT
-    "$DYNAMATIC_EXPORT_DOT_BIN" "$f_src" $export_args > "$f_dot"
-    exit_on_fail "Failed to create DOT" "Created DOT"
-
-    # Convert DOT graph to PNG
-    dot -Tpng "$f_dot" > "$f_png"
-    exit_on_fail "Failed to convert DOT to PNG" "Converted DOT to PNG"
     return 0
 }
 
@@ -419,6 +473,7 @@ dynamatic () {
     local f_handshake="$d_comp/handshake.mlir"
     local f_handshake_transformed="$d_comp/handshake_transformed.mlir"
     local f_handshake_buffered="$d_comp/handshake_buffered.mlir"
+    local f_handshake_export="$d_comp/handshake_export.mlir"
     local f_netlist="$d_comp/netlist.mlir"
     local f_netlist_explicit="$d_comp/netlist_explicit.mlir"
 
@@ -427,10 +482,12 @@ dynamatic () {
     # handshake transformations
     "$DYNAMATIC_OPT_BIN" "$f_handshake" --allow-unregistered-dialect \
         --handshake-concretize-index-type="width=32" \
-        --handshake-minimize-cst-width --handshake-optimize-bitwidths \
+        --handshake-minimize-cst-width --handshake-optimize-bitwidths="legacy" \
         --handshake-materialize-forks-sinks --handshake-infer-basic-blocks \
         > "$f_handshake_transformed"    
     exit_on_fail "Failed to transform handshake IR" "Transformed handshake"
+
+    export_dot "$1" "handshake_transformed" "visual" "ortho" "pre_buf"
 
     # Buffer placement
     if [[ $SMART_BUFFERS -eq 0 ]]; then
@@ -441,27 +498,31 @@ dynamatic () {
             > "$f_handshake_buffered"
         exit_on_fail "Failed to buffer IR" "Buffered handshake"
     else
-        # Run profiler
-        run_dynamatic_profiler "$1" 0
-        exit_on_fail "Failed to run frequency profiler" "Ran frequency profiler"
-        echo_warning "Smart buffer placement pass does not exist for dynamatic yet, no buffers will be inserted."
-        "$DYNAMATIC_OPT_BIN" "$f_handshake_transformed" \
-            --allow-unregistered-dialect > "$f_handshake_buffered" 
+        # Run buffer placement
+        smart_buffers "$1" "$f_handshake_transformed"
+        if [[ $? -ne 0 ]]; then
+            return 1
+        fi
     fi
 
+    # Canonicalization
+    "$DYNAMATIC_OPT_BIN" "$f_handshake_buffered" \
+        --allow-unregistered-dialect --handshake-canonicalize \
+        > "$f_handshake_export"
+    exit_on_fail "Failed to canonicalize handshake" "Canonicalized handshake"
+
     # handshake dialect -> netlist    
-    "$DYNAMATIC_OPT_BIN" "$f_handshake_buffered" --allow-unregistered-dialect \
-        --lower-handshake-to-netlist > "$f_netlist"
-    exit_on_fail "Failed handshake -> netlist conversion" "Lowered to netlist"
+    # "$DYNAMATIC_OPT_BIN" "$f_handshake_export" --allow-unregistered-dialect \
+    #     --lower-handshake-to-netlist -debug-only=dialect-conversion > "$f_netlist"
+    # exit_on_fail "Failed handshake -> netlist conversion" "Lowered to netlist"
 
-    # netlist -> explicit netlist    
-    "$DYNAMATIC_OPT_BIN" "$f_handshake_buffered" --allow-unregistered-dialect \
-        --lower-handshake-to-netlist --lower-esi-ports \
-        > "$f_netlist_explicit"
-    exit_on_fail "Failed netlist -> explicit netlist conversion" "Lowered to explicit netlist"
+    # Export to DOT (one clean for viewing and one compatible with legacy)
+    export_dot "$1" "handshake_export" "visual" "ortho" "visual"
+    export_dot "$1" "handshake_export" "legacy" "ortho" "$name"
 
-    export_dot "$1" "$f_handshake_buffered" 0 0
-    return 0
+    # Convert to VHDL
+    legacy_dot2vhdl "$1"
+    return $?
 }
 
 # Compiles a benchmark using Dynamatic's flow. At the end, generates a
@@ -496,18 +557,16 @@ bridge () {
             --handshake-infer-basic-blocks \
             > "$f_handshake_buffered"
         exit_on_fail "Failed to buffer IR" "Buffered handshake"
-    fi
+        export_dot "$1" "handshake_buffered" "legacy" "ortho" "$name"
+    else
+        export_dot "$1" "handshake_transformed" "legacy-buffers" "ortho" "$name"
 
-    export_dot "$1" "$f_handshake_buffered" 1 1
-
-    if [[ $SMART_BUFFERS -ne 0 ]]; then
-        # Run profiler
-        run_dynamatic_profiler "$1" 1
+        # Run profiler and smart buffer placement
+        run_dynamatic_profiler "$1" "std_dyn_transformed" 1
         if [[ $? -ne 0 ]]; then
             return $?
         fi
-        # Run smart buffer pass
-        smart_buffers "$1"
+        legacy_smart_buffers "$1"
         if [[ $? -ne 0 ]]; then
             return $?
         fi
@@ -517,7 +576,6 @@ bridge () {
     legacy_dot2vhdl "$1"
     return $?
 }
-
 
 # Compiles a benchmark using legacy Dynamatic's flow.
 #   $1: absolute path to benchmark directory (without trailing slash)
@@ -601,9 +659,9 @@ legacy () {
 
     if [[ $SMART_BUFFERS -eq 1 ]]; then
         # Run smart buffer placement pass
-        smart_buffers "$1"
+        legacy_smart_buffers "$1"
         if [[ $? -ne 0 ]]; then
-            return $?
+            return 1
         fi
     fi
 
@@ -657,12 +715,6 @@ simulate_wrap() {
         return 1
     fi
     
-    if [[ $FLOW == $FLOW_DYNAMATIC ]]; then
-        echo_error "Simulation is not yet supported on the dynamatic flow"
-        echo ""
-        return 1
-    fi
-
     # Simulate the design
     echo_subsection "Simulate"
     simulate "$1"
@@ -689,11 +741,6 @@ synthesize_wrap() {
         return 1
     fi
     
-    if [[ $FLOW == $FLOW_DYNAMATIC ]]; then
-        echo_error "Synthesization is not yet supported on the dynamatic flow"
-        return 1
-    fi
-
     # Synthesize the design
     echo_subsection "Synthesize"
     synthesize "$1"
