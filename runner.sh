@@ -456,6 +456,7 @@ mlir_to_handshake() {
     # std dialect -> handshake dialect
     "$DYNAMATIC_OPT_BIN" "$f_std_dyn_transformed" --allow-unregistered-dialect \
         --lower-std-to-handshake-fpga18="id-basic-blocks" \
+        --handshake-fix-arg-names="source=$bench_path/src/$name.c" \
         > "$f_handshake"
     exit_on_fail "Failed std -> handshake conversion" "Lowered to handshake"
     return 0
@@ -634,7 +635,7 @@ legacy () {
         -load "$ELASTIC_BUILD_PATH/ElasticPass/libElasticPass.so" \
         -load "$ELASTIC_BUILD_PATH/OptimizeBitwidth/libLLVMOptimizeBitWidth.so" \
         -load "$ELASTIC_BUILD_PATH/MyCFGPass/libMyCFGPass.so" \
-        -polly-process-unprofitable -mycfgpass -S $buffers -use-lsq=false \
+        -polly-process-unprofitable -mycfgpass -S $buffers -use-lsq=true \
         "$f_ir_opt" "-cfg-outdir=$d_comp" > /dev/null 2>&1
 
     # Remove temporary build files
