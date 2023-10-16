@@ -284,7 +284,7 @@ smart_buffers() {
     "$DYNAMATIC_OPT_BIN" "$f_handshake_input" \
         --allow-unregistered-dialect \
         --handshake-set-buffering-properties="version=fpga20" \
-        --handshake-place-buffers="timing-models=$DYNAMATIC_PATH/data/components.json frequencies=$d_comp/frequencies.csv dump-logs" \
+        --handshake-place-buffers="algorithm=fpga20-legacy timing-models=$DYNAMATIC_PATH/data/components.json frequencies=$d_comp/frequencies.csv dump-logs" \
         > "$f_handshake_buffered"
     echo_status "Failed to buffer IR" "Buffered handshake"
     local ret=$?
