@@ -2,6 +2,7 @@
 import argparse
 import glob
 import os
+import math
 import numpy as np
 from dataclasses import dataclass
 from enum import Enum
@@ -154,14 +155,17 @@ class DotData:
         BRANCH = ("handshake.br", "<does not exist>")
         CBRANCH = ("handshake.cond_br", "Branch")
         BUFFER = ("handshake.buffer", "Buffer")
-        MEMORY_CONTROLLER = ("handshake.mem_controller", "MC")
-        Fork = ("handshake.fork", "Fork")
-        SOURCE = ("handshake.source", "Source")
+        FORK = ("handshake.fork", "Fork")
         SINK = ("handshake.sink", "Sink")
+        SOURCE = ("handshake.source", "Source")
         CONSTANT = ("handshake.constant", "Constant")
         EXIT = ("handshake.end", "Exit")
-        LOAD = ("handshake.d_load", "mc_load_op")
-        STORE = ("handshake.d_store", "mc_store_op")
+        MEMORY_CONTROLLER = ("handshake.mem_controller", "MC")
+        LSQ = ("handshake.lsq", "LSQ")
+        MC_LOAD = ("handshake.mc_load", "mc_load_op")
+        MC_STORE = ("handshake.mc_store", "mc_store_op")
+        LSQ_LOAD = ("handshake.lsq_load", "lsq_load_op")
+        LSQ_STORE = ("handshake.lsq_store", "lsq_store_op")
         RETURN = ("handshake.d_return", "ret_op")
         # Arithmetic components
         SELECT = ("arith.select", "select_op")
@@ -214,13 +218,6 @@ class DotData:
         F_UNE = ("arith.cmpf!=", "fcmp_une_op")
         F_UNO = ("arith.cmpfunordered?", "fcmp_uno_op")
         ALWAYS_TRUE = ("arith.cmpftrue", "fcmp_true_op")
-
-        def is_actually_dataflow(self: Self) -> bool:
-            return self in (
-                DotData.ComponentType.LOAD,
-                DotData.ComponentType.STORE,
-                DotData.ComponentType.RETURN,
-            )
 
         @classmethod
         def get_dataflow(cls: Type[Self]) -> list[Self]:
@@ -559,7 +556,7 @@ def get_chart_generator(
         fig_args = {} if fig_args is None else fig_args
         vbar_args = {} if vbar_args is None else vbar_args
 
-        return nested_barchart(
+        fig: figure = nested_barchart(
             info.benchmarks,
             list(info.data),
             {
@@ -570,12 +567,16 @@ def get_chart_generator(
             fig_args={
                 "height": 400,
                 "sizing_mode": "stretch_width",
-                "tools": "reset,save,xwheel_zoom,ywheel_zoom",
+                "tools": "reset,save,xpan,xwheel_zoom,ywheel_zoom",
+                "active_drag": "xpan",
+                "active_scroll": "xwheel_zoom",
                 **base_fig_args,
                 **fig_args,
             },
             vbar_args={**base_vbar_args, **vbar_args},
         )
+        fig.xaxis.major_label_orientation = math.pi/2
+        return fig
 
     return get_chart
 
@@ -626,6 +627,7 @@ def get_geomean_generator(
 
 def viz_dot(info: DataInfo[DotData]) -> TabPanel:
     chart_gen = get_chart_generator(info)
+    num_figs_per_row : int = 2
 
     def get_category_panel(
         comps: Sequence[DotData.ComponentType], title: str
@@ -643,8 +645,8 @@ def viz_dot(info: DataInfo[DotData]) -> TabPanel:
         rows: list[Row] = []
         idx: int = 0
         while idx < len(figs):
-            rows.append(row(*figs[idx : min(len(figs), idx + 4)]))
-            idx += 4
+            rows.append(row(*figs[idx : min(len(figs), idx + num_figs_per_row)]))
+            idx += num_figs_per_row
         return TabPanel(child=layout(*rows, sizing_mode="stretch_width"), title=title)
 
     dataflow_groups: dict[str, set[DotData.ComponentType]] = {
@@ -657,7 +659,16 @@ def viz_dot(info: DataInfo[DotData]) -> TabPanel:
             DotData.ComponentType.BRANCH,
             DotData.ComponentType.CBRANCH,
         },
-        "Memory operations": {DotData.ComponentType.LOAD, DotData.ComponentType.STORE},
+        "Memory operations": {
+            DotData.ComponentType.MC_LOAD, 
+            DotData.ComponentType.MC_STORE, 
+            DotData.ComponentType.LSQ_LOAD, 
+            DotData.ComponentType.LSQ_STORE
+        },
+        "Memory interfaces": {
+            DotData.ComponentType.MEMORY_CONTROLLER, 
+            DotData.ComponentType.LSQ, 
+        }
     }
 
     meta_dataflow_rows: list[Row] = [
