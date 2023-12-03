@@ -14,11 +14,6 @@ trap "exit" INT
 # Get common functions
 source utils.sh
 
-# Testsuite-related variables 
-PARSE_TESTSUITE=0
-TESTSUITE_DYNAMATIC="dynamatic"
-TESTSUITE_FPL22="fpl22"
-TESTSUITE_PATH="$TESTSUITE_DYNAMATIC"
 
 # Flow-related variables 
 PARSE_FLOW=0
@@ -41,6 +36,7 @@ CLEAN=0
 
 # Explicit list of benchmarks to build
 TO_BUILD=()
+TESTSUITE_PATH="$DYNAMATIC_PATH/integration-test"
 
 # Path to build folders containing legacy Dynamatic object files
 ELASTIC_BUILD_PATH="$LEGACY_DYNAMATIC_ROOT/elastic-circuits/_build"
@@ -51,14 +47,13 @@ FREQUENCY_DATA_PATH="$ELASTIC_BUILD_PATH/FrequencyDataGatherPass"
 print_help_and_exit () {
     echo -e \
 "$0
-    [--testsuite <suite-name>] [--flow <flow-name>] [--output <output-path>] 
+    [--flow <flow-name>] [--output <output-path>] 
     [--no-compile] [--simulate] [--synthesize] [--clean]
     [--smart-buffers] [--loop-rotate]
     [--help|-h] 
     [<bench-name> ]...
 
 List of options:
-  --testsuite <suite-name>      : run a specific testsuite (dynamatic [default], fpl22)
   --flow <flow-name>            : run a specific flow (dynamatic [default], legacy, bridge)
   --output <output-path>        : output path where to store results (relative path w.r.t. each benchmark directory)
   --no-compile                  : do not re-compile benchmarks, only use cached DOTs
@@ -71,22 +66,6 @@ List of options:
   --help | -h                   : display this help message
 "
     exit $2
-}
-
-# Copies a .cpp file to a .c file (useful to avoid annoying C++ function name
-# mangling).
-#   $1: absolute path to benchmark directory (without trailing slash)
-cpp_to_c() {
-    local name="$(basename $1)"
-    cp "$1/src/$name.cpp" "$1/src/$name.c"
-}
-
-# Deletes the .c file that is created by a call to cpp_to_c with the same
-# argument.
-#   $1: absolute path to benchmark directory (without trailing slash)
-delete_c() {
-    local name="$(basename $1)"
-    rm "$1/src/$name.c"
 }
 
 # Deletes and recreate a directory.
@@ -119,13 +98,17 @@ simulate() {
     mkdir -p "$d_c_src" "$d_c_out" "$d_vhdl_src" "$d_vhdl_out" \
         "$d_input_vectors" "$d_hls_verify"
     
+    # Copy integration headers to sim directory to make it visible by the HLS verifier
+    cp "$bench_path/../integration_utils.h" "$d_sim"
+
     # Copy VHDL module and VHDL components to dedicated folder
     cp "$d_comp/$name.vhd" "$d_vhdl_src"
+    cp "$d_comp/"LSQ*.v "$d_vhdl_src" 2> /dev/null
     cp "$LEGACY_DYNAMATIC_ROOT"/components/*.vhd "$d_vhdl_src"
 
     # Copy sources to dedicated folder
-    cp "$bench_path/src/$name.cpp" "$d_c_src/$name.c" 
-    cp "$bench_path/src/$name.h" "$d_c_src"
+    cp "$bench_path/$name.c" "$d_c_src" 
+    cp "$bench_path/$name.h" "$d_c_src"
 
     # Simulate and verify design
     echo_info "Launching Modelsim simulation"
@@ -161,10 +144,18 @@ synthesize() {
     cp "$d_comp/$name.vhd" "$d_hdl"
     cp "$LEGACY_DYNAMATIC_ROOT"/components/*.vhd "$d_hdl"
 
+    # See if we should include any LSQ in the synthesis script
+    local read_verilog=""
+    if ls "$d_comp"/LSQ*.v 1> /dev/null 2>&1; then
+        cp "$d_comp/"LSQ*.v "$d_hdl"
+        read_verilog="read_verilog [glob $d_synth/hdl/*.v]"
+    fi
+
     # Generate synthesization scripts
     echo -e \
 "set_param general.maxThreads 8
 read_vhdl -vhdl2008 [glob $d_synth/hdl/*.vhd]
+$read_verilog
 read_xdc "$f_period"
 synth_design -top $name -part xc7k160tfbg484-2 -no_iobuf -mode out_of_context
 report_utilization > $f_utilization_syn
@@ -203,13 +194,12 @@ legacy_dot2vhdl() {
     local d_comp="$bench_path/$OUTPUT_PATH/comp"
 
     # Convert DOT graph to VHDL
-    "$DOT2VHDL_BIN" "$d_comp/$name" > /dev/null
-    echo_status "Failed to convert DOT to VHDL" "Converted DOT to VHDL"
-    if [[ $? -ne 0 ]]; then
-        return $?
-    fi
-    rm -f "$d_comp"/*.tcl
-    return 0
+    cd "$d_comp"
+    "$DOT2VHDL_BIN" "$d_comp/$name" >/dev/null
+    exit_on_fail "Failed to convert DOT to VHDL" "Converted DOT to VHDL"
+    local ret=$?
+    cd - > /dev/null
+    return $ret
 }
 
 # Runs Dynamatic++'s profiler tool. Input and output files are read from/written
@@ -284,7 +274,7 @@ smart_buffers() {
     "$DYNAMATIC_OPT_BIN" "$f_handshake_input" \
         --allow-unregistered-dialect \
         --handshake-set-buffering-properties="version=fpga20" \
-        --handshake-place-buffers="algorithm=fpga20-legacy timing-models=$DYNAMATIC_PATH/data/components.json frequencies=$d_comp/frequencies.csv dump-logs" \
+        --handshake-place-buffers="algorithm=fpga20-legacy timing-models=$DYNAMATIC_PATH/data/components.json frequencies=$d_comp/frequencies.csv timeout=300 dump-logs" \
         > "$f_handshake_buffered"
     echo_status "Failed to buffer IR" "Buffered handshake"
     local ret=$?
@@ -314,16 +304,14 @@ legacy_smart_buffers() {
 
     # Run smart buffer placement
     echo_info "Placing smart buffers"
-    "$BUFFERS_BIN" buffers -filename="$d_comp/$name" -period=4 \
-        -model_mode=mixed -solver=gurobi_cl > "$f_report"
+    cd $d_buffers
+    "$BUFFERS_BIN" buffers -filename="../$name" -period=4 \
+        -model_mode=mixed -solver=gurobi_cl > "$f_report" 2>&1
     echo_status "Failed to place smart buffers" "Placed smart buffers"
     if [[ $? -ne 0 ]]; then
-        rm -f *.sol *.lp *.txt > /dev/null 2>&1 
         return 1 
     fi
-
-    # Move all generated files to output folder 
-    mv *.log *.sol *.lp *.txt "$d_buffers" > /dev/null 2>&1
+    cd - > /dev/null
 
     # Convert bufferized DFG DOT graph to PNG
     dot -Tpng "$f_dfg_buf_dot" > "$f_dfg_buf_png"
@@ -409,14 +397,15 @@ mlir_to_handshake() {
 
     # source code -> affine dialect
     local include="$POLYGEIST_PATH/llvm-project/clang/lib/Headers/"
-    "$POLYGEIST_CLANG_BIN" "$bench_path/src/$name.c" -I "$include" \
+    "$POLYGEIST_CLANG_BIN" "$bench_path/$name.c" -I "$include" \
         --function="$name" -S -O3 --memref-fullrank --raise-scf-to-affine \
         > "$f_affine" 2>/dev/null
     exit_on_fail "Failed source -> affine conversion" "Lowered to affine"
     
     # memory analysis 
     "$DYNAMATIC_OPT_BIN" "$f_affine" --allow-unregistered-dialect \
-        --name-memory-ops --analyze-memory-accesses > "$f_affine_mem"
+        --force-memory-interface="force-lsq" \
+        > "$f_affine_mem"
     exit_on_fail "Failed memory analysis" "Passed memory analysis"
 
     # affine dialect -> scf dialect
@@ -455,7 +444,7 @@ mlir_to_handshake() {
 
     # std dialect -> handshake dialect
     "$DYNAMATIC_OPT_BIN" "$f_std_dyn_transformed" --allow-unregistered-dialect \
-        --lower-std-to-handshake-fpga18="id-basic-blocks" \
+        --lower-std-to-handshake-fpga18 \
         --handshake-fix-arg-names="source=$bench_path/src/$name.c" \
         > "$f_handshake"
     exit_on_fail "Failed std -> handshake conversion" "Lowered to handshake"
@@ -494,8 +483,7 @@ dynamatic () {
     if [[ $SMART_BUFFERS -eq 0 ]]; then
         "$DYNAMATIC_OPT_BIN" "$f_handshake_transformed" \
             --allow-unregistered-dialect \
-            --handshake-insert-buffers="buffer-size=2 strategy=cycles" \
-            --handshake-infer-basic-blocks \
+            --handshake-place-buffers="algorithm=on-merges" \
             > "$f_handshake_buffered"
         exit_on_fail "Failed to buffer IR" "Buffered handshake"
     else
@@ -554,8 +542,7 @@ bridge () {
     if [[ $SMART_BUFFERS -eq 0 ]]; then
         "$DYNAMATIC_OPT_BIN" "$f_handshake_transformed" \
             --allow-unregistered-dialect \
-            --handshake-insert-buffers="buffer-size=2 strategy=cycles" \
-            --handshake-infer-basic-blocks \
+            --handshake-place-buffers="algorithm=on-merges" \
             > "$f_handshake_buffered"
         exit_on_fail "Failed to buffer IR" "Buffered handshake"
         export_dot "$1" "handshake_buffered" "legacy" "ortho" "$name"
@@ -599,7 +586,7 @@ legacy () {
     # source code -> LLVM IR
 	"$LLVM_CLANG_BIN" -Xclang -disable-O0-optnone -emit-llvm -S \
         -I "$bench_path" \
-        -c "$bench_path/src/$name.c" \
+        -c "$bench_path/$name.c" \
         -o $d_comp/ir.ll
     exit_on_fail "Failed to compile to LLVM IR" "Compiled to LLVM IR"
     
@@ -678,7 +665,6 @@ compile_wrap() {
     fi
 
     # Run the appropriate compile flow
-    cpp_to_c "$1"
     echo_subsection "Compile"
     case "$FLOW" in 
         $FLOW_DYNAMATIC)
@@ -691,12 +677,9 @@ compile_wrap() {
             bridge "$1"
         ;;
     esac
-    local ret=$?
-    delete_c "$1"
-    
-    echo_status_arg $ret "Compilation failed!" "Compilation succeeded!"
+    echo_status "Compilation failed!" "Compilation succeeded!"
     echo ""
-    return $ret
+    return $?
 }
 
 # Wraps the simulation step, checking that an input DOT is present at the right
@@ -763,14 +746,12 @@ benchmark() {
     # Delete output directories if necessary
     if [[ $CLEAN -ne 0 ]]; then
         for dir in $bench_path/*/; do
-            if [[ "$dir" != */src/ ]]; then
-                rm -rf $dir
-            fi
+            rm -rf $dir
         done
     fi
 
     # Check that a source file exists at the expected location
-    local src_path="$bench_path/src/$name.cpp"
+    local src_path="$bench_path/$name.c"
     if [[ ! -f "$src_path" ]]; then
         echo_error "No source file exists at \"$src_path\", skipping this benchmark."
     else        
@@ -786,24 +767,7 @@ echo_section "Parsing arguments"
 # Parse all arguments
 for arg in "$@"; 
 do
-    if [[ $PARSE_TESTSUITE -eq 1 ]]; then
-        # Parse the name of the testsuite to use
-        case "$arg" in 
-            $TESTSUITE_DYNAMATIC)
-                TESTSUITE_PATH="$TESTSUITE_DYNAMATIC_PATH"
-                ;;
-            $TESTSUITE_FPL22)
-                TESTSUITE_PATH="$TESTSUITE_FPL22_PATH"
-                ;;
-            *)
-                echo "Unknown testsuite \"$arg\", printing help and exiting"
-                print_help_and_exit
-                ;;
-        esac
-        echo_info "Setting testsuite to \"$arg\""
-        PARSE_TESTSUITE=0
-
-    elif [[ $PARSE_FLOW -eq 1 ]]; then
+    if [[ $PARSE_FLOW -eq 1 ]]; then
         # Parse the name of the flow to use
         case "$arg" in 
             $FLOW_DYNAMATIC)
@@ -832,9 +796,6 @@ do
     else
         # Parse the next argument
         case "$arg" in 
-            "--testsuite")
-                PARSE_TESTSUITE=1
-                ;;
             "--flow")
                 PARSE_FLOW=1
                 ;;
@@ -899,9 +860,7 @@ check_env_variables \
     LLVM_OPT_BIN \
     MLIR_OPT_BIN \
     POLYGEIST_CLANG_BIN \
-    POLYGEIST_PATH \
-    TESTSUITE_DYNAMATIC_PATH \
-    TESTSUITE_FPL22_PATH
+    POLYGEIST_PATH
 
 # Build benchmarks
 if [ ${#TO_BUILD[@]} -eq 0 ]; then
