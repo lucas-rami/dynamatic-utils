@@ -1,13 +1,14 @@
 {
     "editor.formatOnSave": true,
     "editor.detectIndentation": true,
-    "editor.defaultFormatter": "xaver.clang-format",
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
     "cmake.generator": "Ninja",
     "[python]": {
-        "editor.defaultFormatter": "ms-python.python"
+        "editor.defaultFormatter": "ms-python.black-formatter"
     },
-    "python.formatting.provider": "black",
+    "[cpp]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+    },
     "files.associations": {
         "*.inc": "cpp"
     }
