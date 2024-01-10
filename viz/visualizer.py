@@ -144,7 +144,7 @@ class DotData:
                     else:
                         decode_legacy(attributes)
 
-        return DotData(bb_count, counts)
+        return cls(bb_count, counts)
 
     class ComponentType(Enum):
         # Dataflow components
@@ -156,17 +156,19 @@ class DotData:
         CBRANCH = ("handshake.cond_br", "Branch")
         BUFFER = ("handshake.buffer", "Buffer")
         FORK = ("handshake.fork", "Fork")
+        LAZY_FORK = ("handshake.lazy_fork", "Lazy fork")
         SINK = ("handshake.sink", "Sink")
         SOURCE = ("handshake.source", "Source")
         CONSTANT = ("handshake.constant", "Constant")
         EXIT = ("handshake.end", "Exit")
+        RETURN = ("handshake.d_return", "ret_op")
+        # Memory components
         MEMORY_CONTROLLER = ("handshake.mem_controller", "MC")
         LSQ = ("handshake.lsq", "LSQ")
         MC_LOAD = ("handshake.mc_load", "mc_load_op")
         MC_STORE = ("handshake.mc_store", "mc_store_op")
         LSQ_LOAD = ("handshake.lsq_load", "lsq_load_op")
         LSQ_STORE = ("handshake.lsq_store", "lsq_store_op")
-        RETURN = ("handshake.d_return", "ret_op")
         # Arithmetic components
         SELECT = ("arith.select", "select_op")
         INDEX_CAST = ("arith.extui", "zext_op")
@@ -219,17 +221,31 @@ class DotData:
         F_UNO = ("arith.cmpfunordered?", "fcmp_uno_op")
         ALWAYS_TRUE = ("arith.cmpftrue", "fcmp_true_op")
 
-        @classmethod
-        def get_dataflow(cls: Type[Self]) -> list[Self]:
+        @staticmethod
+        def get_dataflow() -> list["DotData.ComponentType"]:
             return list(
                 filter(
-                    lambda comp: comp.value[0].startswith("handshake."),
+                    lambda comp: comp.value[0].startswith("handshake.")
+                    and not (
+                        comp.value[1].lower().startswith("mc")
+                        or comp.value[1].lower().startswith("lsq")
+                    ),
                     DotData.ComponentType,
                 )
             )
 
-        @classmethod
-        def get_arithmetic(cls: Type[Self]) -> list[Self]:
+        @staticmethod
+        def get_memory() -> list["DotData.ComponentType"]:
+            return list(
+                filter(
+                    lambda comp: comp.value[1].lower().startswith("mc")
+                    or comp.value[1].lower().startswith("lsq"),
+                    DotData.ComponentType,
+                )
+            )
+
+        @staticmethod
+        def get_arithmetic() -> list["DotData.ComponentType"]:
             return list(
                 filter(
                     lambda comp: comp.value[0].startswith("arith.")
@@ -238,8 +254,8 @@ class DotData:
                 )
             )
 
-        @classmethod
-        def get_icmp(cls: Type[Self]) -> list[Self]:
+        @staticmethod
+        def get_icmp() -> list["DotData.ComponentType"]:
             return list(
                 filter(
                     lambda comp: comp.value[0].startswith("arith.cmpi"),
@@ -247,8 +263,8 @@ class DotData:
                 )
             )
 
-        @classmethod
-        def get_fcmp(cls: Type[Self]) -> list[Self]:
+        @staticmethod
+        def get_fcmp() -> list["DotData.ComponentType"]:
             return list(
                 filter(
                     lambda comp: comp.value[0].startswith("arith.cmpf"),
@@ -256,12 +272,12 @@ class DotData:
                 )
             )
 
-        @classmethod
-        def build_decoder(cls: Type[Self]) -> dict[str, Self]:
+        @staticmethod
+        def build_decoder() -> dict[str, "DotData.ComponentType"]:
             return {comp.value[0]: comp for comp in DotData.ComponentType}
 
-        @classmethod
-        def build_legacy_decoder(cls: Type[Self]) -> dict[str, Self]:
+        @staticmethod
+        def build_legacy_decoder() -> dict[str, "DotData.ComponentType"]:
             return {comp.value[1]: comp for comp in DotData.ComponentType}
 
 
@@ -299,7 +315,7 @@ class SimData:
                         raise ValueError(f'Unexpected EOF @ "{filepath}"')
 
         was_data_parsed("time", time)
-        return SimData(time)
+        return cls(time)
 
 
 @dataclass(frozen=True)
@@ -348,7 +364,7 @@ class AreaData:
                 elif "DSPs" in line:
                     dsp = get_used_column(line)
 
-        return AreaData(lut_logic, lut_ram, lut_reg, reg_ff, reg_latch, dsp)
+        return cls(lut_logic, lut_ram, lut_reg, reg_ff, reg_latch, dsp)
 
 
 @dataclass(frozen=True)
@@ -575,7 +591,7 @@ def get_chart_generator(
             },
             vbar_args={**base_vbar_args, **vbar_args},
         )
-        fig.xaxis.major_label_orientation = math.pi/2
+        fig.xaxis.major_label_orientation = math.pi / 2
         return fig
 
     return get_chart
@@ -627,7 +643,7 @@ def get_geomean_generator(
 
 def viz_dot(info: DataInfo[DotData]) -> TabPanel:
     chart_gen = get_chart_generator(info)
-    num_figs_per_row : int = 2
+    num_figs_per_row: int = 2
 
     def get_category_panel(
         comps: Sequence[DotData.ComponentType], title: str
@@ -647,7 +663,7 @@ def viz_dot(info: DataInfo[DotData]) -> TabPanel:
         while idx < len(figs):
             rows.append(row(*figs[idx : min(len(figs), idx + num_figs_per_row)]))
             idx += num_figs_per_row
-        return TabPanel(child=layout(*rows, sizing_mode="stretch_width"), title=title)
+        return TabPanel(child=layout(*rows, sizing_mode="stretch_width"), title=title)  # type: ignore
 
     dataflow_groups: dict[str, set[DotData.ComponentType]] = {
         "Merge-like components": {
@@ -660,15 +676,15 @@ def viz_dot(info: DataInfo[DotData]) -> TabPanel:
             DotData.ComponentType.CBRANCH,
         },
         "Memory operations": {
-            DotData.ComponentType.MC_LOAD, 
-            DotData.ComponentType.MC_STORE, 
-            DotData.ComponentType.LSQ_LOAD, 
-            DotData.ComponentType.LSQ_STORE
+            DotData.ComponentType.MC_LOAD,
+            DotData.ComponentType.MC_STORE,
+            DotData.ComponentType.LSQ_LOAD,
+            DotData.ComponentType.LSQ_STORE,
         },
         "Memory interfaces": {
-            DotData.ComponentType.MEMORY_CONTROLLER, 
-            DotData.ComponentType.LSQ, 
-        }
+            DotData.ComponentType.MEMORY_CONTROLLER,
+            DotData.ComponentType.LSQ,
+        },
     }
 
     meta_dataflow_rows: list[Row] = [
@@ -707,6 +723,7 @@ def viz_dot(info: DataInfo[DotData]) -> TabPanel:
     dataflow_panel = get_category_panel(
         DotData.ComponentType.get_dataflow(), "Dataflow"
     )
+    memory_panel = get_category_panel(DotData.ComponentType.get_memory(), "Memory")
     arithmetic_panel = get_category_panel(
         DotData.ComponentType.get_arithmetic(), "Arithmetic"
     )
@@ -714,10 +731,17 @@ def viz_dot(info: DataInfo[DotData]) -> TabPanel:
     fcmp_panel = get_category_panel(DotData.ComponentType.get_fcmp(), "Floating CMP")
 
     tabs = Tabs(
-        tabs=[meta_panel, dataflow_panel, arithmetic_panel, icmp_panel, fcmp_panel],
+        tabs=[
+            meta_panel,
+            dataflow_panel,
+            memory_panel,
+            arithmetic_panel,
+            icmp_panel,
+            fcmp_panel,
+        ],
         sizing_mode="stretch_width",
     )
-    return TabPanel(child=tabs, title="Circuit")
+    return TabPanel(child=tabs, title="Circuit")  # type: ignore
 
 
 def viz_simulation(info: DataInfo[SimData], period: float) -> TabPanel:
@@ -732,7 +756,7 @@ def viz_simulation(info: DataInfo[SimData], period: float) -> TabPanel:
     geo = geo_gen(float, "Simulation time", extract)
     return TabPanel(
         child=row(time, geo, sizing_mode="stretch_width"), title="Simulation"
-    )
+    )  # type: ignore
 
 
 def viz_area(info: DataInfo[AreaData]) -> TabPanel:
@@ -790,7 +814,7 @@ def viz_area(info: DataInfo[AreaData]) -> TabPanel:
     return TabPanel(
         child=Tabs(tabs=[panel_lut, panel_reg, panel_dsp], sizing_mode="stretch_width"),
         title="Area",
-    )
+    )  # type: ignore
 
 
 def viz_timing(info: DataInfo[TimingData]) -> TabPanel:
@@ -821,7 +845,7 @@ def viz_timing(info: DataInfo[TimingData]) -> TabPanel:
             row(slack), row(data_delay, geo_delay), sizing_mode="stretch_width"
         ),
         title="Timing",
-    )
+    )  # type: ignore
 
 
 def visualizer():
@@ -836,7 +860,7 @@ def visualizer():
     period: float = args.period
     output: str | None = args.output
 
-    def get_flow_names() -> tuple[str]:
+    def get_flow_names() -> tuple[str, ...]:
         # If flow names were provided as arguments, make sure they are unique and
         # consistent with the number of report paths
         if flows is not None:
@@ -910,7 +934,7 @@ def visualizer():
         panels.append(viz_timing(info))
 
     # Show the final figure (and potentialyl save it to disk)
-    fig = Tabs(tabs=panels, sizing_mode="stretch_width")
+    fig: Tabs = Tabs(tabs=panels, sizing_mode="stretch_width")  # type: ignore
     if output is not None:
         save_to_disk(fig, output, "Report")
     show(fig)
